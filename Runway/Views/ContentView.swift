@@ -34,23 +34,25 @@ struct ContentView: View {
           .font(.headline)
           .foregroundStyle(.secondary)
           .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal)
 
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
           Text("Remaining today")
             .font(.headline)
           Text(Money.format(cents: allowance.remainingTodayCents))
             .font(.largeTitle.bold())
             .accessibilityLabel("Remaining today")
             .accessibilityValue(Money.format(cents: allowance.remainingTodayCents))
-          Button("Log Expense", systemImage: "plus") {
+          Button {
             showsQuickLog = true
+          } label: {
+            Label("Log Expense", systemImage: "plus")
+              .frame(maxWidth: .infinity, minHeight: 44)
           }
           .buttonStyle(.borderedProminent)
-          .frame(minHeight: 44)
+          .frame(maxWidth: .infinity, minHeight: 44)
           .accessibilityHint("Opens the expense amount keypad.")
         }
-        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
 
         if expenses.isEmpty {
           ContentUnavailableView(
@@ -74,6 +76,11 @@ struct ContentView: View {
           }
         }
       }
+      .safeAreaInset(edge: .bottom) {
+        if let undo {
+          undoBanner(undo)
+        }
+      }
       .navigationTitle("Runway")
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
@@ -84,11 +91,6 @@ struct ContentView: View {
         }
       }
       .sensoryFeedback(.success, trigger: saveFeedback)
-      .safeAreaInset(edge: .bottom) {
-        if let undo {
-          undoBanner(undo)
-        }
-      }
       .task(id: undo?.expiresAt) {
         guard let deadline = undo?.expiresAt else { return }
         let delay = max(0, deadline.timeIntervalSinceNow)
@@ -98,7 +100,7 @@ struct ContentView: View {
         } catch {}
       }
       .task {
-        if screenshotScenario == .quickLogEmpty || screenshotScenario == .quickLogFilled {
+        if opensQuickLog {
           showsQuickLog = true
         } else if screenshotScenario == .todayUndo, undo == nil, let expense = expenses.first {
           // Let CI launch settle before starting the normal five-second undo window.
@@ -107,7 +109,11 @@ struct ContentView: View {
         }
       }
       .sheet(isPresented: $showsQuickLog) {
-        QuickExpenseView(budget: budget, filled: screenshotScenario == .quickLogFilled) { expense in
+        QuickExpenseView(
+          budget: budget,
+          filled: screenshotScenario == .quickLogFilled || screenshotScenario == .quickLogNote,
+          focusesNote: screenshotScenario == .quickLogNote
+        ) { expense in
           undo = ExpenseUndo(expense: expense, now: .now)
           saveFeedback += 1
         }
@@ -122,6 +128,15 @@ struct ContentView: View {
           BudgetSetupView(budget: budget)
         }
       }
+    }
+  }
+
+  private var opensQuickLog: Bool {
+    switch screenshotScenario {
+    case .quickLogEmpty, .quickLogFilled, .quickLogNote:
+      true
+    default:
+      false
     }
   }
 

@@ -48,6 +48,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case categoryPicker = "category-picker"
   case quickLogEmpty = "quick-log-empty"
   case quickLogFilled = "quick-log-filled"
+  case quickLogNote = "quick-log-note"
   case todayUndo = "today-undo"
 
   /// Inserts and saves sample data. A sample budget starts three days before `now`.
@@ -77,7 +78,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       }
       try context.save()
       return nil
-    case .setupFilled, .quickLogEmpty, .quickLogFilled, .todayUndo:
+    case .setupFilled, .quickLogEmpty, .quickLogFilled, .quickLogNote, .todayUndo:
       // 2,400 - (1,100 + 45 + 60) - 200 = 995 available.
       budget = Budget(
         periodStart: periodStart,

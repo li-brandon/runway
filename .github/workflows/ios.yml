@@ -139,7 +139,7 @@ jobs:
           APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/Runway.app"
           BUNDLE_ID=com.librandon.runway
           SCENARIOS="setup-empty setup-filled setup-warning categories category-picker"
-          SCENARIOS="$SCENARIOS quick-log-empty quick-log-filled today-undo"
+          SCENARIOS="$SCENARIOS quick-log-empty quick-log-filled quick-log-note today-undo"
           ticket_for() {
             case "$1" in
               setup-*) echo 430 ;;
