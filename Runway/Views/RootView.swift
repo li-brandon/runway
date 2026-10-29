@@ -21,7 +21,11 @@ struct RootView: View {
     } else if screenshotScenario == .categoryPicker {
       CategoryPickerHost()
     } else if AppRoute(hasBudget: !budgets.isEmpty) == .main, let budget = budgets.first {
-      ContentView(budget: budget, showsSetup: screenshotScenario != nil)
+      ContentView(
+        budget: budget,
+        showsSetup: screenshotScenario == .setupFilled || screenshotScenario == .setupWarning,
+        screenshotScenario: screenshotScenario
+      )
     } else {
       NavigationStack {
         BudgetSetupView(budget: nil)

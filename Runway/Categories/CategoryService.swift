@@ -114,7 +114,7 @@ struct CategoryService {
 
   func delete(_ category: Category) throws {
     guard !category.isSystem else { throw Issue.protectedCategory }
-    let other = try seed()
+    let other = try otherCategory()
     // Copy before changing inverse relationships, then reassign before deleting.
     let expenses = Array(category.expenses)
     for expense in expenses {
@@ -129,13 +129,27 @@ struct CategoryService {
     amountCents: Int,
     note: String = "",
     date: Date = .now,
-    category: Category? = nil
+    category: Category? = nil,
+    now: Date = .now
   ) throws -> Expense {
-    let assigned = try category ?? seed()
-    let expense = Expense(amountCents: amountCents, note: note, date: date)
+    let assigned = try category ?? otherCategory()
+    let expense = Expense(amountCents: amountCents, note: note, date: date, createdAt: now)
     context.insert(expense)
     expense.category = assigned
     return expense
+  }
+
+  /// Fetch the seed marker directly; normal mutations never scan or repair all expenses.
+  private func otherCategory() throws -> Category {
+    var descriptor = FetchDescriptor<Category>(predicate: #Predicate { $0.isSystem })
+    descriptor.fetchLimit = 1
+    if let other = try context.fetch(descriptor).first { return other }
+    return try seed()
+  }
+
+  static func deletionMessage(name: String, expenseCount: Int) -> String {
+    let noun = expenseCount == 1 ? "expense" : "expenses"
+    return "Delete \(name)? \(expenseCount) \(noun) will move to Other."
   }
 
   private func validatedName(_ name: String, excluding category: Category? = nil) throws -> String {

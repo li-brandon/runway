@@ -211,7 +211,7 @@ struct CategoryTests {
     #expect(try service.categories().count == 7)
   }
 
-  @Test("Saved expense dates drive distinct recent categories followed by sortOrder")
+  @Test("Logging times drive distinct recent categories followed by sortOrder")
   func recentOrdering() throws {
     let context = ModelContext(container)
     let service = CategoryService(context: context)
@@ -221,7 +221,8 @@ struct CategoryTests {
       try service.createExpense(
         amountCents: 100,
         date: Date(timeIntervalSince1970: Double(index)),
-        category: categories[categoryIndex]
+        category: categories[categoryIndex],
+        now: Date(timeIntervalSince1970: Double(index))
       )
     }
     try context.save()
@@ -230,7 +231,7 @@ struct CategoryTests {
     let expenses = try loaded.fetch(FetchDescriptor<Expense>())
     let usage = expenses.compactMap { expense -> (id: PersistentIdentifier, date: Date)? in
       guard let category = expense.category else { return nil }
-      return (id: category.persistentModelID, date: expense.date)
+      return (id: category.persistentModelID, date: expense.createdAt)
     }
     let ordered = CategoryOrdering.orderedIDs(in: saved.map(\.persistentModelID), usage: usage)
     let names = ordered.compactMap { id in saved.first { $0.persistentModelID == id }?.name }

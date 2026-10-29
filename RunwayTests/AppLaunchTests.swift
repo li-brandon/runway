@@ -35,6 +35,14 @@ struct AppLaunchTests {
     }
   }
 
+  @Test("Quick-log note screenshots require an in-memory store")
+  func quickLogNoteLaunchOptions() {
+    let arguments = ["Runway", "-RunwayScreenshotScenario", "quick-log-note"]
+    #expect(LaunchOptions(arguments: arguments).screenshotScenario == nil)
+    let options = LaunchOptions(arguments: arguments + ["-RunwayInMemoryStore"])
+    #expect(options.screenshotScenario == .quickLogNote)
+  }
+
   @Test("A scenario is ignored without the in-memory store, or when unknown or missing")
   func ignoredScenarios() {
     let onDisk = LaunchOptions(arguments: ["Runway", "-RunwayScreenshotScenario", "setup-filled"])
@@ -78,6 +86,10 @@ struct AppLaunchTests {
         "setup-warning",
         "categories",
         "category-picker",
+        "quick-log-empty",
+        "quick-log-filled",
+        "quick-log-note",
+        "today-undo",
       ]
     )
   }
@@ -98,7 +110,16 @@ struct AppLaunchTests {
         available[scenario] = draft.availableCents
       }
     }
-    #expect(available == [.setupFilled: 99_500, .setupWarning: -25_000])
+    #expect(
+      available == [
+        .setupFilled: 99_500,
+        .setupWarning: -25_000,
+        .quickLogEmpty: 99_500,
+        .quickLogFilled: 99_500,
+        .quickLogNote: 99_500,
+        .todayUndo: 99_500,
+      ]
+    )
   }
 
   @Test("Category screenshot scenarios seed persisted categories and distinct recent usage")

@@ -7,7 +7,7 @@ expenses as you go. Runway shows how much of the period's "runway" you have left
 US dollars.
 
 > **Status:** early. The data model, persistence, money helpers, allowance engine, budget setup,
-> categories, and CI are in place. The main screen is still a placeholder.
+> categories, quick expense logging, and CI are in place. Today has a minimal remaining amount.
 
 ## Budget setup
 
@@ -60,10 +60,28 @@ provided. The model relationship remains optional for SwiftData; raw model inser
 for persistence tests. Startup assigns Other to any old uncategorized expenses. Service methods
 stage changes in their context; callers save on success and roll back on a save failure.
 
-`CategoryPicker` is reusable by the future quick logging screen (LIB-432). It returns a saved
-category through `onSelect`. `CategoryOrdering` puts the three distinct categories with the most
-recent expense dates first, then the rest in saved order. Equal dates keep saved order. The picker
-uses all recorded expense dates, including future dates. Quick logging itself is not implemented.
+`CategoryPicker` returns a saved category through `onSelect`. `CategoryOrdering` puts the three
+most recently logged distinct categories first, then the rest in saved order. It uses `createdAt`,
+so logging a backdated expense still makes that category recent. Equal logging times keep saved
+order. Normal create/delete operations fetch Other directly and only seed if it is missing.
+
+## Quick expense logging
+
+Tap **Log Expense** on Today to open the USD decimal keypad, focused on the amount. Enter a
+positive amount; **Save** stays disabled with a message for empty, zero, or invalid input.
+Category and note are optional (category defaults to Other). **Refund** saves the entered amount
+as a negative expense. The date defaults to now and can only be backdated within the current
+period. A budget whose first period starts in the future permits today only until that start.
+
+Saving updates **Remaining today** from `AllowanceEngine` through the model adapter and SwiftData
+queries, and plays success haptic feedback. An **Undo** banner deletes the saved expense for five
+seconds; saving again replaces that opportunity. The sheet uses standard Dynamic Type controls,
+and the undo banner stacks at accessibility sizes.
+
+`ExpenseDraft` shares `BudgetDraft` parsing, validates the amount, applies the refund sign, clamps
+the date again at save time, and creates expenses exclusively through `CategoryService`.
+`ExpenseUndo` provides the tested expiry and deletion operation. `Expense.createdAt` records when
+an expense was logged independently of its spending date. V1 is still unshipped and edited in place.
 
 ## Launch arguments
 
@@ -77,7 +95,9 @@ Used for CI screenshots. You can also set them in Xcode under **Edit Scheme › 
 Scenarios: `setup-empty` (first launch, defaults), `setup-filled` (a budget with money available,
 reopened from Settings), `setup-warning` (bills and savings exceed spendable),
 `categories` (seeded category settings), and `category-picker` (a sheet with Shopping, Groceries,
-and Transport first based on sample expenses).
+and Transport first based on sample expenses), `quick-log-empty` (empty sheet, Save disabled),
+`quick-log-filled` (amount, Food category, and note), and `today-undo` (saved expense and Undo).
+The undo scenario delays showing its five-second banner until launch has settled for CI capture.
 
 ```sh
 xcrun simctl launch booted com.librandon.runway \
@@ -125,6 +145,7 @@ xcodebuild test \
 | `Runway/Money` | Cents ↔ dollars conversion and USD formatting |
 | `Runway/Engine` | Daily allowance engine and its mapping from the models |
 | `Runway/Categories` | Category persistence service and pure picker ordering |
+| `Runway/Expenses` | Quick-log draft validation, creation, and expiring undo |
 | `Runway/Setup` | `BudgetDraft`: budget setup parsing, validation, and saving |
 | `Runway/Views` | SwiftUI views |
 | `RunwayTests` | Unit tests (Swift Testing) |
@@ -159,7 +180,8 @@ macOS runner. It:
    turned off.
 5. If the tests pass, installs the built app on the same simulator with the status bar clock set
    to 9:41, launches each screenshot scenario (see [Launch arguments](#launch-arguments)), and
-   uploads `screenshots/430-<scenario>.png` as the `screenshots` artifact. A failed capture fails
+   uploads `screenshots/<ticket>-<scenario>.png` as the `screenshots` artifact: setup uses 430,
+   categories and category-picker use 440, and quick logging uses 432. A failed capture fails
    the job. Every scenario is captured at default and largest accessibility text sizes. Setup
    scenarios also get a second accessibility capture scrolled to the amount fields.
 6. Uploads the `.xcresult` bundles as an artifact if any step fails.

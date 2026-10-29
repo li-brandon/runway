@@ -46,6 +46,10 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
 
   case categories
   case categoryPicker = "category-picker"
+  case quickLogEmpty = "quick-log-empty"
+  case quickLogFilled = "quick-log-filled"
+  case quickLogNote = "quick-log-note"
+  case todayUndo = "today-undo"
 
   /// Inserts and saves sample data. A sample budget starts three days before `now`.
   @discardableResult
@@ -67,13 +71,14 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
           try service.createExpense(
             amountCents: 1_200 + index * 100,
             date: now.addingTimeInterval(Double(index - 4) * 3_600),
-            category: category
+            category: category,
+            now: now.addingTimeInterval(Double(index - 4) * 3_600)
           )
         }
       }
       try context.save()
       return nil
-    case .setupFilled:
+    case .setupFilled, .quickLogEmpty, .quickLogFilled, .quickLogNote, .todayUndo:
       // 2,400 - (1,100 + 45 + 60) - 200 = 995 available.
       budget = Budget(
         periodStart: periodStart,
@@ -102,6 +107,14 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     for bill in bills {
       context.insert(bill)
       budget.fixedBills.append(bill)
+    }
+    if self == .todayUndo {
+      try CategoryService(context: context).createExpense(
+        amountCents: 1_250,
+        note: "Lunch with Sam",
+        date: now,
+        now: now
+      )
     }
     try context.save()
     return budget
