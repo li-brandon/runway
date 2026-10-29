@@ -3,6 +3,7 @@ import Foundation
 /// Pure picker ordering, independent of SwiftData and SwiftUI.
 enum CategoryOrdering {
   /// Up to three distinct recently used categories, then the remaining saved order.
+  /// Usage dates are logging times (`Expense.createdAt`), rather than spending dates.
   /// Equal dates keep saved order. Unknown category IDs are ignored; a nonpositive limit disables
   /// recents. Callers supply IDs in sortOrder and expense usage in any order.
   static func orderedIDs<ID: Hashable>(

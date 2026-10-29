@@ -139,6 +139,15 @@ jobs:
           APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/Runway.app"
           BUNDLE_ID=com.librandon.runway
           SCENARIOS="setup-empty setup-filled setup-warning categories category-picker"
+          SCENARIOS="$SCENARIOS quick-log-empty quick-log-filled today-undo"
+          ticket_for() {
+            case "$1" in
+              setup-*) echo 430 ;;
+              categories|category-picker) echo 440 ;;
+              quick-log-*|today-undo) echo 432 ;;
+              *) return 1 ;;
+            esac
+          }
           mkdir -p screenshots
 
           # Screenshots run on a dedicated narrow (375pt) iPhone so layout problems show up.
@@ -265,16 +274,16 @@ jobs:
 
           xcrun simctl ui "$SHOT_UDID" content_size large
           for SCENARIO in $SCENARIOS; do
-            capture "$SCENARIO" "screenshots/430-$SCENARIO.png"
+            capture "$SCENARIO" "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO.png"
           done
 
           # Largest accessibility text size. Each capture relaunches the app, so it picks this up.
           xcrun simctl ui "$SHOT_UDID" content_size accessibility-extra-extra-extra-large
           for SCENARIO in $SCENARIOS; do
-            capture "$SCENARIO" "screenshots/430-$SCENARIO-ax5.png"
+            capture "$SCENARIO" "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO-ax5.png"
             case "$SCENARIO" in
               setup-*)
-                capture "$SCENARIO" "screenshots/430-$SCENARIO-ax5-amounts.png" \
+                capture "$SCENARIO" "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO-ax5-amounts.png" \
                   -RunwayScreenshotScrollTo spendable
                 ;;
             esac

@@ -13,7 +13,7 @@ struct CategoryPicker: View {
   private var ordered: [Category] {
     let usage = expenses.compactMap { expense -> (id: PersistentIdentifier, date: Date)? in
       guard let category = expense.category else { return nil }
-      return (id: category.persistentModelID, date: expense.date)
+      return (id: category.persistentModelID, date: expense.createdAt)
     }
     let ids = CategoryOrdering.orderedIDs(in: categories.map(\.persistentModelID), usage: usage)
     let byID = Dictionary(uniqueKeysWithValues: categories.map { ($0.persistentModelID, $0) })
@@ -28,6 +28,7 @@ struct CategoryPicker: View {
             onSelect(category)
           } label: {
             CategoryLabel(category: category)
+              .frame(minHeight: 44)
           }
         }
       } footer: {
@@ -39,7 +40,7 @@ struct CategoryPicker: View {
   }
 }
 
-/// Screenshot host until quick logging (LIB-432) supplies the real presentation.
+/// Standalone host for the category-picker screenshot scenario.
 struct CategoryPickerHost: View {
   @State private var showsPicker = true
   @State private var selection = "Other"

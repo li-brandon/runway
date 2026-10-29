@@ -73,7 +73,12 @@ struct CategoriesView: View {
         deleting = nil
       }
     } message: { category in
-      Text("Delete \(category.name)? \(category.expenses.count) expenses will move to Other.")
+      Text(
+        CategoryService.deletionMessage(
+          name: category.name,
+          expenseCount: category.expenses.count
+        )
+      )
     }
     .alert("Couldn't Save Categories", isPresented: $showsError) {
       Button("OK", role: .cancel) {}

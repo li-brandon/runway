@@ -83,15 +83,18 @@ extension RunwaySchemaV1 {
     var amountCents: Int = 0
     var note: String = ""
     var date: Date = Date.now
+    /// When the expense was logged, independent of its spending date.
+    var createdAt: Date = Date.now
 
     /// Optional for SwiftData; app creation uses CategoryService to always assign a category.
     @Relationship(deleteRule: .nullify)
     var category: Category?
 
-    init(amountCents: Int, note: String = "", date: Date = .now) {
+    init(amountCents: Int, note: String = "", date: Date = .now, createdAt: Date = .now) {
       self.amountCents = amountCents
       self.note = note
       self.date = date
+      self.createdAt = createdAt
     }
   }
 

@@ -78,6 +78,9 @@ struct AppLaunchTests {
         "setup-warning",
         "categories",
         "category-picker",
+        "quick-log-empty",
+        "quick-log-filled",
+        "today-undo",
       ]
     )
   }
@@ -98,7 +101,15 @@ struct AppLaunchTests {
         available[scenario] = draft.availableCents
       }
     }
-    #expect(available == [.setupFilled: 99_500, .setupWarning: -25_000])
+    #expect(
+      available == [
+        .setupFilled: 99_500,
+        .setupWarning: -25_000,
+        .quickLogEmpty: 99_500,
+        .quickLogFilled: 99_500,
+        .todayUndo: 99_500,
+      ]
+    )
   }
 
   @Test("Category screenshot scenarios seed persisted categories and distinct recent usage")
