@@ -153,13 +153,13 @@ struct CategoryTests {
     )
     #expect(expenses.map { $0.category?.name } == ["Other", "Food"])
     #expect(expenses.first?.note == "Coffee")
-    #expect(try loaded.fetchCount(FetchDescriptor<Category>()) == 7)
+    #expect(try loaded.fetchCount(FetchDescriptor<RunwaySchemaV1.Category>()) == 7)
   }
 
   @Test("Seeding adopts existing defaults and repairs uncategorized expenses")
   func adoptsAndRepairs() throws {
     let context = ModelContext(container)
-    let existing = Category(name: " groceries ", symbol: "cart", colorHex: "#34C759")
+    let existing = RunwaySchemaV1.Category(name: " groceries ", symbol: "cart", colorHex: "#34C759")
     context.insert(existing)
     // Raw model insertion simulates data from before this feature.
     context.insert(Expense(amountCents: 125))
