@@ -40,8 +40,11 @@ struct BudgetDraftTests {
   @Test(
     "Parses dollar text into cents",
     arguments: zip(
-      ["12.34", "$1,234.5", " 7 ", ".5", "5.", "0", "0.07", "10000000", "$ 2,400.00"],
-      [1_234, 123_450, 700, 50, 500, 0, 7, 1_000_000_000, 240_000]
+      [
+        "12.34", "$1,234.5", "$2,400.50", "2400.50", " 7 ", ".5", "5.", "0", "0.07",
+        "10000000", "$ 2,400.00",
+      ],
+      [1_234, 123_450, 240_050, 240_050, 700, 50, 500, 0, 7, 1_000_000_000, 240_000]
     )
   )
   func parsesCents(text: String, cents: Int) {
@@ -76,12 +79,15 @@ struct BudgetDraftTests {
     let german = Locale(identifier: "de_DE")
     #expect(BudgetDraft.parseAmount("1.234,56", locale: german) == .cents(123_456))
     #expect(BudgetDraft.parseAmount("12,5", locale: german) == .cents(1_250))
-    #expect(BudgetDraft.text(fromCents: 4_550, locale: german) == "45,50")
+    #expect(BudgetDraft.text(fromCents: 4_550, locale: german) == "$45,50")
   }
 
   @Test(
-    "Formats cents for editing",
-    arguments: zip([0, 7, 4_550, 240_000, 123_401], ["0", "0.07", "45.50", "2400", "1234.01"])
+    "Formats cents as editable USD",
+    arguments: zip(
+      [0, 7, 4_550, 240_000, 123_401],
+      ["$0", "$0.07", "$45.50", "$2,400", "$1,234.01"]
+    )
   )
   func formatsText(cents: Int, text: String) {
     #expect(BudgetDraft.text(fromCents: cents, locale: locale) == text)
@@ -92,7 +98,7 @@ struct BudgetDraftTests {
     "Formats valid amounts as currency for display",
     arguments: zip(
       ["2400", "45.5", "$1,234.56", "0"],
-      ["$2,400.00", "$45.50", "$1,234.56", "$0.00"]
+      ["$2,400", "$45.50", "$1,234.56", "$0"]
     )
   )
   func formatsDisplayText(text: String, displayText: String) {
@@ -193,7 +199,7 @@ struct BudgetDraftTests {
     #expect(draft.incomeCents == 240_050)
     #expect(draft.canUseIncome)
     draft.useIncomeForSpendable()
-    #expect(draft.spendableText == "2400.50")
+    #expect(draft.spendableText == "$2,400.50")
     #expect(draft.availableCents == 240_050)
     // Already equal, so the button has nothing to do.
     #expect(!draft.canUseIncome)
