@@ -1,0 +1,142 @@
+name: iOS
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PROJECT: Runway.xcodeproj
+  SCHEME: Runway
+  # Fallback only; the "Pick simulator" step overrides this with a concrete simulator id.
+  DESTINATION: platform=iOS Simulator,name=iPhone 17
+  DERIVED_DATA: DerivedData
+  RESULTS_DIR: TestResults
+  XCODE_VERSION: '27'
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: xcode-27  # public-preview macOS 27 image with Xcode 27 and iOS simulators
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Select Xcode
+        run: |
+          XCODE_VERSION="${XCODE_VERSION:-27}"
+          ls -d /Applications/Xcode*.app || true
+
+          if [ -d "/Applications/Xcode_${XCODE_VERSION}.app" ]; then
+            XCODE_APP="/Applications/Xcode_${XCODE_VERSION}.app"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode_"${XCODE_VERSION}"*.app 2>/dev/null | sort -V | tail -n 1 || true)"
+          fi
+
+          if [ -n "$XCODE_APP" ]; then
+            echo "Selecting $XCODE_APP"
+            sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          else
+            echo "No /Applications/Xcode_${XCODE_VERSION}*.app found; keeping default $(xcode-select -p)"
+          fi
+
+          xcodebuild -version
+          XCODE_MAJOR="$(xcodebuild -version | awk 'NR == 1 { split($2, v, "."); print v[1] }')"
+          if [ "$XCODE_MAJOR" != "$XCODE_VERSION" ]; then
+            echo "::error title=Wrong Xcode::Expected Xcode ${XCODE_VERSION}.x but got Xcode ${XCODE_MAJOR:-unknown} at $(xcode-select -p)"
+            exit 1
+          fi
+          echo "iOS Simulator SDK: $(xcrun --sdk iphonesimulator --show-sdk-version)"
+          sw_vers
+
+      - name: Lint (swift-format)
+        run: |
+          xcrun swift-format --version
+          xcrun swift-format lint --strict --recursive Runway RunwayTests
+
+      - name: Pick simulator
+        run: |
+          SIMCTL_JSON="$RUNNER_TEMP/simctl-devices.json"
+          xcrun simctl list devices available -j > "$SIMCTL_JSON"
+
+          # Prints "<udid> <runtime> <name>" for the first available iPhone on the newest iOS runtime.
+          PICK="$(python3 - "$SIMCTL_JSON" <<'PY'
+          import json
+          import re
+          import sys
+
+          with open(sys.argv[1]) as f:
+              devices = json.load(f)["devices"]
+
+          def runtime_version(key):
+              match = re.search(r"SimRuntime\.iOS-([0-9-]+)$", key)
+              return tuple(int(p) for p in match.group(1).split("-")) if match else None
+
+          runtimes = sorted(
+              (k for k in devices if runtime_version(k) is not None),
+              key=runtime_version,
+              reverse=True,
+          )
+          for key in runtimes:
+              for device in devices[key]:
+                  if device.get("isAvailable", True) and device["name"].startswith("iPhone"):
+                      version = ".".join(str(p) for p in runtime_version(key))
+                      print(device["udid"], f"iOS-{version}", device["name"])
+                      sys.exit(0)
+          sys.exit(1)
+          PY
+          )" || {
+            echo "::error title=No simulator::No available iPhone simulator found"
+            xcrun simctl list devices available
+            exit 1
+          }
+
+          read -r SIM_UDID SIM_RUNTIME SIM_NAME <<< "$PICK"
+          echo "Using simulator: $SIM_NAME ($SIM_RUNTIME, $SIM_UDID)"
+          echo "DESTINATION=platform=iOS Simulator,id=$SIM_UDID" >> "$GITHUB_ENV"
+
+      - name: Build for testing
+        run: |
+          echo "Destination: $DESTINATION"
+          mkdir -p "$RESULTS_DIR"
+          xcodebuild build-for-testing \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$RESULTS_DIR/build.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=''
+
+      - name: Test
+        run: |
+          xcodebuild test-without-building \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$RESULTS_DIR/test.xcresult" \
+            -only-testing:RunwayTests \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=''
+
+      - name: Upload result bundles
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: xcresult-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RESULTS_DIR }}/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
