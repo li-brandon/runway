@@ -149,7 +149,13 @@ jobs:
             xcrun simctl launch --terminate-running-process "$SIM_UDID" "$BUNDLE_ID" \
               -RunwayInMemoryStore -RunwayScreenshotScenario "$SCENARIO"
             sleep 6
-            xcrun simctl io "$SIM_UDID" screenshot "screenshots/430-$SCENARIO.png"
+            # Multi-display simulators (e.g. iPhone Duo) need --display; use the "(primary)" one.
+            if ! xcrun simctl io "$SIM_UDID" screenshot "screenshots/430-$SCENARIO.png" 2> "$RUNNER_TEMP/shot.err"; then
+              cat "$RUNNER_TEMP/shot.err"
+              DISPLAY_ID="$(sed -nE 's/.*--display=([0-9]+)[[:space:]]+[A-Za-z0-9-]+ \(primary\).*/\1/p' "$RUNNER_TEMP/shot.err" | head -n 1)"
+              [ -n "$DISPLAY_ID" ] || exit 1
+              xcrun simctl io "$SIM_UDID" screenshot --display="$DISPLAY_ID" "screenshots/430-$SCENARIO.png"
+            fi
           done
           xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" || true
 
