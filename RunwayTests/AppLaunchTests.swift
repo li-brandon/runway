@@ -58,6 +58,17 @@ struct AppLaunchTests {
     #expect(missing.screenshotScenario == nil)
   }
 
+  @Test("Screenshot scrolling accepts spendable only with the in-memory store")
+  func screenshotScrollOptions() {
+    let arguments = ["Runway", "-RunwayInMemoryStore", "-RunwayScreenshotScrollTo"]
+    #expect(LaunchOptions(arguments: arguments + ["spendable"]).screenshotScrollTo == "spendable")
+    #expect(LaunchOptions(arguments: arguments + ["unknown"]).screenshotScrollTo == nil)
+    #expect(LaunchOptions(arguments: arguments).screenshotScrollTo == nil)
+    #expect(LaunchOptions(arguments: ["Runway"]).screenshotScrollTo == nil)
+    let onDisk = LaunchOptions(arguments: ["Runway", "-RunwayScreenshotScrollTo", "spendable"])
+    #expect(onDisk.screenshotScrollTo == nil)
+  }
+
   @Test("Scenario names match the CI workflow")
   func scenarioNames() {
     #expect(

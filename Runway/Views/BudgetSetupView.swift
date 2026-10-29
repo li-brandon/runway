@@ -25,98 +25,111 @@ struct BudgetSetupView: View {
 
   var body: some View {
     let issues = draft.issues
-    Form {
-      Section {
-        LabeledContent("Available this period") {
-          Text(draft.availableCents.map { Money.format(cents: $0) } ?? "—")
-            .fontWeight(.semibold)
-            .foregroundStyle(draft.showsLowAvailableWarning ? Color.red : Color.primary)
-        }
-        if draft.showsLowAvailableWarning {
-          Label(
-            "Bills and savings use up all of your spendable money. You can still save.",
-            systemImage: "exclamationmark.triangle.fill"
-          )
-          .font(.footnote)
-          .foregroundStyle(.orange)
-        }
-      } footer: {
-        Text("Spendable minus bills and savings, spread across the days of the period.")
-      }
-
-      Section {
-        Picker("Period", selection: $draft.periodLength) {
-          ForEach(PeriodLength.allCases, id: \.self) { length in
-            Text(length.title).tag(length)
+    ScrollViewReader { proxy in
+      Form {
+        Section {
+          LabeledContent("Available this period") {
+            Text(draft.availableCents.map { Money.format(cents: $0) } ?? "—")
+              .fontWeight(.semibold)
+              .foregroundStyle(draft.showsLowAvailableWarning ? Color.red : Color.primary)
           }
+          if draft.showsLowAvailableWarning {
+            Label(
+              "Bills and savings use up all of your spendable money. You can still save.",
+              systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.footnote)
+            .foregroundStyle(.orange)
+          }
+        } footer: {
+          Text("Spendable minus bills and savings, spread across the days of the period.")
         }
-        .pickerStyle(.segmented)
-        DatePicker("Starts on", selection: $draft.periodStart, displayedComponents: .date)
-      } header: {
-        Text("Pay period")
-      } footer: {
-        Text("Pick a payday. Each period starts on that day.")
-      }
 
-      Section {
-        AmountField(
-          "Spendable per period",
-          text: $draft.spendableText,
-          issue: issues[.spendable],
-          locale: draft.locale
-        )
-        AmountField(
-          "Income (optional)",
-          text: $draft.incomeText,
-          issue: issues[.income],
-          locale: draft.locale
-        )
-        Button("Use Income") {
-          draft.useIncomeForSpendable()
+        Section {
+          Picker("Period", selection: $draft.periodLength) {
+            ForEach(PeriodLength.allCases, id: \.self) { length in
+              Text(length.title).tag(length)
+            }
+          }
+          .pickerStyle(.segmented)
+          DatePicker("Starts on", selection: $draft.periodStart, displayedComponents: .date)
+        } header: {
+          Text("Pay period")
+        } footer: {
+          Text("Pick a payday. Each period starts on that day.")
         }
-        .disabled(!draft.canUseIncome)
-      } header: {
-        Text("Spendable")
-      } footer: {
-        Text("What you can spend each period, before bills and savings.")
-      }
 
-      Section {
-        ForEach($draft.bills) { $bill in
-          BillRow(
-            bill: $bill,
-            nameIssue: issues[.billName(bill.id)],
-            amountIssue: issues[.billAmount(bill.id)],
+        Section {
+          AmountField(
+            "Spendable per period",
+            text: $draft.spendableText,
+            issue: issues[.spendable],
             locale: draft.locale
           )
+          AmountField(
+            "Income (optional)",
+            text: $draft.incomeText,
+            issue: issues[.income],
+            locale: draft.locale
+          )
+          Button("Use Income") {
+            draft.useIncomeForSpendable()
+          }
+          .disabled(!draft.canUseIncome)
+        } header: {
+          Text("Spendable")
+        } footer: {
+          Text("What you can spend each period, before bills and savings.")
         }
-        .onDelete { offsets in
-          draft.bills.remove(atOffsets: offsets)
-        }
-        Button("Add Bill", systemImage: "plus") {
-          draft.addBill()
-        }
-      } header: {
-        Text("Fixed bills")
-      } footer: {
-        Text("Each amount comes out of every period. Swipe left to remove a bill.")
-      }
+        .id("spendable")
 
-      Section {
-        AmountField(
-          "Savings per period",
-          text: $draft.savingsText,
-          issue: issues[.savings],
-          locale: draft.locale
-        )
-      } header: {
-        Text("Savings")
-      }
+        Section {
+          ForEach($draft.bills) { $bill in
+            BillRow(
+              bill: $bill,
+              nameIssue: issues[.billName(bill.id)],
+              amountIssue: issues[.billAmount(bill.id)],
+              locale: draft.locale
+            )
+          }
+          .onDelete { offsets in
+            draft.bills.remove(atOffsets: offsets)
+          }
+          Button("Add Bill", systemImage: "plus") {
+            draft.addBill()
+          }
+        } header: {
+          Text("Fixed bills")
+        } footer: {
+          Text("Each amount comes out of every period. Swipe left to remove a bill.")
+        }
 
-      Section {
-        Toggle("Carry over leftovers", isOn: $draft.carryoverEnabled)
-      } footer: {
-        Text("Leftovers or overspending roll into the next period. Changes apply next period.")
+        Section {
+          AmountField(
+            "Savings per period",
+            text: $draft.savingsText,
+            issue: issues[.savings],
+            locale: draft.locale
+          )
+        } header: {
+          Text("Savings")
+        }
+
+        Section {
+          Toggle("Carry over leftovers", isOn: $draft.carryoverEnabled)
+        } footer: {
+          Text("Leftovers or overspending roll into the next period. Changes apply next period.")
+        }
+      }
+      .task {
+        let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
+        guard let target = options.screenshotScrollTo else { return }
+        do {
+          try await Task.sleep(for: .milliseconds(300))
+        } catch {
+          return
+        }
+        proxy.scrollTo(target, anchor: .top)
       }
     }
     .navigationTitle(budget == nil ? "Set Up Budget" : "Budget")

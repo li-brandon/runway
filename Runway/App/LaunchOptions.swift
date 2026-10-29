@@ -7,20 +7,31 @@ import SwiftData
 /// - `-RunwayScreenshotScenario <name>` seeds the store and opens budget setup (see
 ///   `ScreenshotScenario`). It's ignored without `-RunwayInMemoryStore`, so sample data can never
 ///   be written to the real store.
+/// - `-RunwayScreenshotScrollTo spendable` scrolls setup to its amount fields. It is also ignored
+///   without `-RunwayInMemoryStore`.
 struct LaunchOptions: Equatable, Sendable {
   static let inMemoryStoreArgument = "-RunwayInMemoryStore"
   static let screenshotScenarioArgument = "-RunwayScreenshotScenario"
+  static let screenshotScrollToArgument = "-RunwayScreenshotScrollTo"
 
   var usesInMemoryStore = false
   var screenshotScenario: ScreenshotScenario?
+  var screenshotScrollTo: String?
 
   init(arguments: [String]) {
     usesInMemoryStore = arguments.contains(Self.inMemoryStoreArgument)
-    guard usesInMemoryStore,
-      let index = arguments.firstIndex(of: Self.screenshotScenarioArgument),
+    guard usesInMemoryStore else { return }
+    if let index = arguments.firstIndex(of: Self.screenshotScenarioArgument),
       index + 1 < arguments.count
-    else { return }
-    screenshotScenario = ScreenshotScenario(rawValue: arguments[index + 1])
+    {
+      screenshotScenario = ScreenshotScenario(rawValue: arguments[index + 1])
+    }
+    if let index = arguments.firstIndex(of: Self.screenshotScrollToArgument),
+      index + 1 < arguments.count,
+      arguments[index + 1] == "spendable"
+    {
+      screenshotScrollTo = arguments[index + 1]
+    }
   }
 }
 
