@@ -35,9 +35,12 @@ import Foundation
 ///   evaluated once per boundary, when crossing into a new period: it is the `enabled` value of
 ///   the last of `budget.carryoverChanges` whose `effectiveAt` is at or before the boundary, so a
 ///   change effective exactly at a boundary applies at that boundary. Boundaries before the first
-///   change use the opposite of its `enabled` (each change flips the setting); with no changes,
-///   every boundary uses `budget.carryoverEnabled`. Turning carryover off mid-period therefore
-///   keeps the current period's carry-in and only zeroes the next one.
+///   change use its recorded `previousEnabled`; with no changes, every boundary uses
+///   `budget.carryoverEnabled`. Turning carryover off mid-period therefore keeps the current
+///   period's carry-in and only zeroes the next one.
+/// - **Spendable** here is whatever the caller passes as `spendablePerPeriodCents`. The adapter
+///   for the persisted `Budget` passes its available amount (spendable − fixed bills − savings),
+///   so bills and savings never count as day-to-day money.
 struct AllowanceEngine: Sendable {
   let calendar: Calendar
 
@@ -160,7 +163,7 @@ struct AllowanceEngine: Sendable {
   func isCarryoverEnabled(atBoundary boundary: Date, budget: BudgetSnapshot) -> Bool {
     let changes = budget.carryoverChanges
     guard let first = changes.first else { return budget.carryoverEnabled }
-    return changes.last { $0.effectiveAt <= boundary }?.enabled ?? !first.enabled
+    return changes.last { $0.effectiveAt <= boundary }?.enabled ?? first.previousEnabled
   }
 
   // MARK: - Periods
@@ -240,11 +243,13 @@ struct BudgetSnapshot: Equatable, Sendable {
   var periodLength: PeriodLength
   /// Anchor for period 0. Only its local calendar day matters.
   var periodStart: Date
+  /// The money spread over each period. For a persisted `Budget` this is its available amount
+  /// (spendable − fixed bills − savings), not the raw spendable.
   var spendablePerPeriodCents: Int
   /// The current carryover setting. On by default. Only used when `carryoverChanges` is empty.
   var carryoverEnabled = true
-  /// Every change to the carryover setting, sorted by `effectiveAt` (oldest first). Each change
-  /// is expected to flip the setting, so the value before the first one is its opposite.
+  /// Every change to the carryover setting, sorted by `effectiveAt` (oldest first). The value
+  /// before the first one is its `previousEnabled`.
   var carryoverChanges: [CarryoverChangeSnapshot] = []
 }
 
@@ -258,6 +263,8 @@ struct ExpenseSnapshot: Equatable, Sendable {
 /// `effectiveAt`.
 struct CarryoverChangeSnapshot: Equatable, Sendable {
   var enabled: Bool
+  /// The setting in effect before this change.
+  var previousEnabled: Bool
   var effectiveAt: Date
 }
 

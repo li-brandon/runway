@@ -3,6 +3,7 @@ xcuserdata/
 DerivedData/
 TestResults/
 *.xcresult
+screenshots/
 build/
 .build/
 Config/Secrets.xcconfig

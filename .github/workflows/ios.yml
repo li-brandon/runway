@@ -104,6 +104,7 @@ jobs:
           read -r SIM_UDID SIM_RUNTIME SIM_NAME <<< "$PICK"
           echo "Using simulator: $SIM_NAME ($SIM_RUNTIME, $SIM_UDID)"
           echo "DESTINATION=platform=iOS Simulator,id=$SIM_UDID" >> "$GITHUB_ENV"
+          echo "SIM_UDID=$SIM_UDID" >> "$GITHUB_ENV"
 
       - name: Build for testing
         run: |
@@ -131,6 +132,160 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=''
+
+      - name: Screenshots
+        run: |
+          set -euo pipefail
+          APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/Runway.app"
+          BUNDLE_ID=com.librandon.runway
+          SCENARIOS="setup-empty setup-filled setup-warning"
+          mkdir -p screenshots
+
+          # Screenshots run on a dedicated narrow (375pt) iPhone so layout problems show up.
+          TYPES_JSON="$RUNNER_TEMP/simctl-devicetypes.json"
+          RUNTIMES_JSON="$RUNNER_TEMP/simctl-runtimes.json"
+          xcrun simctl list devicetypes -j > "$TYPES_JSON"
+          xcrun simctl list runtimes -j > "$RUNTIMES_JSON"
+
+          # Prints "<device type id> <runtime id> <device type name>" for the newest iOS runtime:
+          # the first supported preferred type, else the supported iPhone with the smallest screen.
+          # Prints nothing if neither exists.
+          PICK="$(python3 - "$TYPES_JSON" "$RUNTIMES_JSON" <<'PY'
+          import json
+          import plistlib
+          import re
+          import sys
+          from pathlib import Path
+
+          PREFIX = "com.apple.CoreSimulator.SimDeviceType."
+          PREFERRED = [
+              PREFIX + name
+              for name in [
+                  "iPhone-SE-3rd-generation",
+                  "iPhone-SE-2nd-generation",
+                  "iPhone-13-mini",
+                  "iPhone-12-mini",
+              ]
+          ]
+
+          with open(sys.argv[1]) as f:
+              device_types = {t["identifier"]: t for t in json.load(f)["devicetypes"]}
+          with open(sys.argv[2]) as f:
+              runtimes = json.load(f)["runtimes"]
+
+          def runtime_version(runtime):
+              match = re.search(r"SimRuntime\.iOS-([0-9-]+)$", runtime["identifier"])
+              return tuple(int(p) for p in match.group(1).split("-")) if match else None
+
+          def screen_points(identifier):
+              """(width, height) in points from the type's profile.plist, or None."""
+              bundle = device_types[identifier].get("bundlePath")
+              if not bundle:
+                  return None
+              try:
+                  with open(Path(bundle) / "Contents/Resources/profile.plist", "rb") as f:
+                      profile = plistlib.load(f)
+                  scale = profile["mainScreenScale"]
+                  return (profile["mainScreenWidth"] / scale, profile["mainScreenHeight"] / scale)
+              except (OSError, KeyError, TypeError, ZeroDivisionError, plistlib.InvalidFileException):
+                  return None
+
+          ios = [r for r in runtimes if r.get("isAvailable", True) and runtime_version(r)]
+          if not ios:
+              sys.exit(0)
+          runtime = max(ios, key=runtime_version)
+          supported = {
+              t["identifier"]
+              for t in runtime.get("supportedDeviceTypes", [])
+              if t.get("identifier") in device_types
+          }
+
+          if not supported:
+              # Some images omit supportedDeviceTypes; try every installed iPhone type instead.
+              supported = set(device_types)
+          for t in sorted(supported):
+              if device_types[t].get("name", "").startswith("iPhone"):
+                  print("candidate:", device_types[t]["name"], screen_points(t), file=sys.stderr)
+          print("runtime:", runtime["identifier"], file=sys.stderr)
+
+          choice = next((t for t in PREFERRED if t in supported), None)
+          if choice is None:
+              iphones = [
+                  t
+                  for t in supported
+                  if (device_types[t].get("productFamily") == "iPhone"
+                      or device_types[t].get("name", "").startswith("iPhone"))
+                  and screen_points(t)
+              ]
+              if iphones:
+                  choice = min(iphones, key=lambda t: (screen_points(t), t))
+          if choice is not None:
+              print(choice, runtime["identifier"], device_types[choice].get("name", choice))
+          PY
+          )"
+
+          SHOT_UDID="$SIM_UDID"
+          if [ -n "$PICK" ]; then
+            read -r SHOT_TYPE SHOT_RUNTIME SHOT_TYPE_NAME <<< "$PICK"
+            echo "Screenshot device type: $SHOT_TYPE_NAME ($SHOT_TYPE, $SHOT_RUNTIME)"
+            if NEW_UDID="$(xcrun simctl create "Runway Shots" "$SHOT_TYPE" "$SHOT_RUNTIME")"; then
+              SHOT_UDID="$NEW_UDID"
+              # Free the test simulator; screenshots don't need it.
+              xcrun simctl shutdown "$SIM_UDID" || true
+              xcrun simctl boot "$SHOT_UDID"
+            else
+              echo "::warning title=Screenshot simulator::Couldn't create $SHOT_TYPE on $SHOT_RUNTIME; using the test simulator"
+            fi
+          else
+            echo "::warning title=Screenshot simulator::No narrow iPhone device type found; using the test simulator"
+          fi
+          echo "Screenshot simulator: $SHOT_UDID"
+
+          # Boots the simulator if it's shut down, and waits until it's ready.
+          xcrun simctl bootstatus "$SHOT_UDID" -b
+          xcrun simctl status_bar "$SHOT_UDID" override --time 9:41
+          xcrun simctl install "$SHOT_UDID" "$APP_PATH"
+          # Leave the text size at the default even if a capture fails.
+          trap 'xcrun simctl ui "$SHOT_UDID" content_size large || true' EXIT
+
+          # capture <scenario> <output png> [launch arguments...]: relaunches and saves a shot.
+          capture() {
+            echo "Capturing $1 → $2"
+            xcrun simctl launch --terminate-running-process "$SHOT_UDID" "$BUNDLE_ID" \
+              -RunwayInMemoryStore -RunwayScreenshotScenario "$1" "${@:3}"
+            sleep 6
+            # Multi-display simulators (e.g. iPhone Duo) need --display; use the "(primary)" one.
+            if ! xcrun simctl io "$SHOT_UDID" screenshot "$2" 2> "$RUNNER_TEMP/shot.err"; then
+              cat "$RUNNER_TEMP/shot.err"
+              DISPLAY_ID="$(sed -nE 's/.*--display=([0-9]+)[[:space:]]+[A-Za-z0-9-]+ \(primary\).*/\1/p' "$RUNNER_TEMP/shot.err" | head -n 1)" || true
+              [ -n "$DISPLAY_ID" ] || return 1
+              xcrun simctl io "$SHOT_UDID" screenshot --display="$DISPLAY_ID" "$2"
+            fi
+          }
+
+          xcrun simctl ui "$SHOT_UDID" content_size large
+          for SCENARIO in $SCENARIOS; do
+            capture "$SCENARIO" "screenshots/430-$SCENARIO.png"
+          done
+
+          # Largest accessibility text size. Each capture relaunches the app, so it picks this up.
+          xcrun simctl ui "$SHOT_UDID" content_size accessibility-extra-extra-extra-large
+          for SCENARIO in $SCENARIOS; do
+            capture "$SCENARIO" "screenshots/430-$SCENARIO-ax5.png"
+            capture "$SCENARIO" "screenshots/430-$SCENARIO-ax5-amounts.png" \
+              -RunwayScreenshotScrollTo spendable
+          done
+
+          xcrun simctl ui "$SHOT_UDID" content_size large
+          xcrun simctl terminate "$SHOT_UDID" "$BUNDLE_ID" || true
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: screenshots
+          path: screenshots/*.png
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload result bundles
         if: failure()
