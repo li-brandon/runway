@@ -101,8 +101,8 @@ struct ModelTests {
       sortOrder: 1
     )
     context.insert(groceries)
-    let tagged = Expense(amountCents: 2_350, note: "Market")
-    let untagged = Expense(amountCents: 499)
+    let tagged = makeFixtureExpense(amountCents: 2_350, note: "Market")
+    let untagged = makeFixtureExpense(amountCents: 499)
     context.insert(tagged)
     context.insert(untagged)
     tagged.category = groceries
@@ -126,8 +126,8 @@ struct ModelTests {
       colorHex: "#FF9500"
     )
     context.insert(dining)
-    let lunch = Expense(amountCents: 1_200, note: "Lunch")
-    let dinner = Expense(amountCents: 3_400, note: "Dinner")
+    let lunch = makeFixtureExpense(amountCents: 1_200, note: "Lunch")
+    let dinner = makeFixtureExpense(amountCents: 3_400, note: "Dinner")
     context.insert(lunch)
     context.insert(dinner)
     lunch.category = dining

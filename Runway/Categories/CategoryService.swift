@@ -133,7 +133,13 @@ struct CategoryService {
     now: Date = .now
   ) throws -> Expense {
     let assigned = try category ?? otherCategory()
-    let expense = Expense(amountCents: amountCents, note: note, date: date, createdAt: now)
+    #if DEBUG
+      let expense = ExpenseCreationGuard.$isAuthorized.withValue(true) {
+        Expense(amountCents: amountCents, note: note, date: date, createdAt: now)
+      }
+    #else
+      let expense = Expense(amountCents: amountCents, note: note, date: date, createdAt: now)
+    #endif
     context.insert(expense)
     expense.category = assigned
     return expense

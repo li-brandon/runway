@@ -162,7 +162,7 @@ struct CategoryTests {
     let existing = RunwaySchemaV1.Category(name: " groceries ", symbol: "cart", colorHex: "#34C759")
     context.insert(existing)
     // Raw model insertion simulates data from before this feature.
-    context.insert(Expense(amountCents: 125))
+    context.insert(makeFixtureExpense(amountCents: 125))
     let service = CategoryService(context: context)
     let other = try service.seed()
     try context.save()

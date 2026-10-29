@@ -27,6 +27,12 @@ enum PeriodLength: String, Codable, CaseIterable, Sendable {
   case monthly
 }
 
+#if DEBUG
+  enum ExpenseCreationGuard {
+    @TaskLocal static var isAuthorized = false
+  }
+#endif
+
 extension RunwaySchemaV1 {
   @Model
   final class Budget {
@@ -90,7 +96,15 @@ extension RunwaySchemaV1 {
     @Relationship(deleteRule: .nullify)
     var category: Category?
 
+    #if DEBUG
+      @Transient var creationWasAuthorized: Bool = false
+    #endif
+
     init(amountCents: Int, note: String = "", date: Date = .now, createdAt: Date = .now) {
+      #if DEBUG
+        creationWasAuthorized = ExpenseCreationGuard.isAuthorized
+        assert(creationWasAuthorized, "Create expenses through CategoryService.createExpense")
+      #endif
       self.amountCents = amountCents
       self.note = note
       self.date = date

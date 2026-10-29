@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftData
 import SwiftUI
@@ -135,6 +136,7 @@ struct ContentView: View {
       }
       .onReceive(
         NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)
+          .receive(on: RunLoop.main)
       ) { _ in
         now = .now
       }
