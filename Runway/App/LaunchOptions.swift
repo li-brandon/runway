@@ -51,6 +51,20 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case quickLogNote = "quick-log-note"
   case todayUndo = "today-undo"
 
+  case todayNormal = "today-normal"
+  case todayNear = "today-near"
+  case todayOver = "today-over"
+  case todayNoBudget = "today-no-budget"
+
+  var todayDate: Date? {
+    switch self {
+    case .todayNormal, .todayNear, .todayOver, .todayNoBudget:
+      Calendar.current.date(from: DateComponents(year: 2026, month: 6, day: 10, hour: 12))
+    default:
+      nil
+    }
+  }
+
   /// Inserts and saves sample data. A sample budget starts three days before `now`.
   @discardableResult
   func seed(into context: ModelContext, now: Date, calendar: Calendar) throws -> Budget? {
@@ -59,7 +73,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     let budget: Budget
     let bills: [FixedBill]
     switch self {
-    case .setupEmpty:
+    case .setupEmpty, .todayNoBudget:
       return nil
     case .categories, .categoryPicker:
       let service = CategoryService(context: context)
@@ -91,6 +105,12 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
         FixedBill(name: "Phone", amountCents: 4_500, dueDay: 12),
         FixedBill(name: "Internet", amountCents: 6_000, dueDay: 18),
       ]
+    case .todayNormal, .todayNear, .todayOver:
+      budget = Budget(
+        periodStart: periodStart,
+        spendablePerPeriodCents: 110_000
+      )
+      bills = []
     case .setupWarning:
       // 1,200 - (1,100 + 250) - 100 = -250 available.
       budget = Budget(
@@ -113,6 +133,28 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
         amountCents: 1_250,
         note: "Lunch with Sam",
         date: now,
+        now: now
+      )
+    }
+    if self == .todayNormal || self == .todayNear || self == .todayOver {
+      let service = CategoryService(context: context)
+      try service.seed()
+      let categories = try service.categories()
+      var amount = 2_500
+      if self == .todayNear { amount = 9_500 }
+      if self == .todayOver { amount = 12_500 }
+      try service.createExpense(
+        amountCents: amount,
+        note: "Lunch with Sam",
+        date: now.addingTimeInterval(-3_600),
+        category: categories.first { $0.name == "Food" },
+        now: now.addingTimeInterval(-3_600)
+      )
+      try service.createExpense(
+        amountCents: -500,
+        note: "Returned item",
+        date: now,
+        category: categories.first { $0.name == "Shopping" },
         now: now
       )
     }

@@ -116,4 +116,51 @@ struct ExpenseDraftTests {
     #expect(try !undo.undo(in: context, now: now.addingTimeInterval(5)))
     #expect(try context.fetchCount(FetchDescriptor<Expense>()) == 1)
   }
+
+  @Test("Backdating across midnight stays inside the period and future dates clamp to now")
+  func midnightClamp() {
+    let now = calendar.date(2026, 6, 4, 0, 0, 30)
+    let start = calendar.date(2026, 6, 1)
+    var draft = ExpenseDraft(now: now)
+    draft.date = calendar.date(2026, 6, 3, 23, 59)
+    #expect(draft.clampedDate(periodStart: start, now: now) == draft.date)
+    draft.date = now.addingTimeInterval(1)
+    #expect(draft.clampedDate(periodStart: start, now: now) == now)
+    #expect(draft.clampedDate(periodStart: calendar.startOfDay(for: now), now: now) == now)
+    draft.date = calendar.date(2026, 6, 3, 23, 59)
+    let boundary = calendar.startOfDay(for: now)
+    #expect(draft.clampedDate(periodStart: boundary, now: now) == boundary)
+  }
+
+  @Test("Two quick saves persist both expenses and the latest undo deletes only the second")
+  func consecutiveSaves() throws {
+    let container = try RunwayModelContainer.make(inMemory: true)
+    let context = ModelContext(container)
+    let service = CategoryService(context: context)
+    let now = calendar.date(2026, 6, 4, 12)
+    let start = calendar.date(2026, 6, 1)
+    var draft = ExpenseDraft(now: now)
+    draft.locale = Money.fixedLocale
+    draft.amountText = "12.50"
+    let first = try #require(
+      try draft.createExpense(using: service, periodStart: start, now: now)
+    )
+    try context.save()
+    var undo = ExpenseUndo(expense: first, now: now)
+    draft.amountText = "5"
+    let second = try #require(
+      try draft.createExpense(using: service, periodStart: start, now: now.addingTimeInterval(1))
+    )
+    try context.save()
+    undo = ExpenseUndo(expense: second, now: now.addingTimeInterval(1))
+    let loaded = ModelContext(container)
+    let saved = try loaded.fetch(FetchDescriptor<Expense>())
+    #expect(saved.map(\.amountCents).sorted() == [500, 1_250])
+    #expect(try undo.undo(in: context, now: now.addingTimeInterval(2)))
+    let afterUndo = ModelContext(container)
+    let remaining = try afterUndo.fetch(FetchDescriptor<Expense>())
+    #expect(remaining.map(\.persistentModelID) == [first.persistentModelID])
+    #expect(remaining.map(\.amountCents) == [1_250])
+  }
+
 }

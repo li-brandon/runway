@@ -1,6 +1,6 @@
 /// Which screen the app shows at its root.
 enum AppRoute: Equatable, Sendable {
-  /// Budget setup. Shown until a budget has been saved, so a first launch lands here.
+  /// Today with an initial budget setup sheet. Dismissing it reveals the empty state.
   case setup
   /// The main screen. Its Settings button reopens setup.
   case main

@@ -1,7 +1,7 @@
 import SwiftData
 import SwiftUI
 
-/// Shows budget setup until a budget exists (see `AppRoute`), then the main screen.
+/// Keeps Today behind the initial setup sheet, then shows the saved budget.
 struct RootView: View {
   @Query(sort: \Budget.periodStart) private var budgets: [Budget]
 
@@ -27,9 +27,7 @@ struct RootView: View {
         screenshotScenario: screenshotScenario
       )
     } else {
-      NavigationStack {
-        BudgetSetupView(budget: nil)
-      }
+      TodayEmptyView(opensSetup: screenshotScenario != .todayNoBudget)
     }
   }
 }
@@ -37,4 +35,39 @@ struct RootView: View {
 #Preview("First launch") {
   RootView()
     .modelContainer(try! RunwayModelContainer.make(inMemory: true))
+}
+
+struct TodayEmptyView: View {
+  @State private var showsSetup: Bool
+
+  init(opensSetup: Bool = true) {
+    _showsSetup = State(initialValue: opensSetup)
+  }
+
+  var body: some View {
+    NavigationStack {
+      ScrollView {
+        ContentUnavailableView {
+          Label("Your runway starts here", systemImage: "dollarsign.circle")
+        } description: {
+          Text("Set up a budget to see what you can spend today.")
+        } actions: {
+          Button("Set up budget") { showsSetup = true }
+            .buttonStyle(.borderedProminent)
+            .frame(minHeight: 44)
+        }
+      }
+      .navigationTitle("Today")
+      .sheet(isPresented: $showsSetup) {
+        NavigationStack {
+          BudgetSetupView(budget: nil)
+            .toolbar {
+              ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { showsSetup = false }
+              }
+            }
+        }
+      }
+    }
+  }
 }

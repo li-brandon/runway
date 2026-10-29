@@ -7,12 +7,14 @@ expenses as you go. Runway shows how much of the period's "runway" you have left
 US dollars.
 
 > **Status:** early. The data model, persistence, money helpers, allowance engine, budget setup,
-> categories, quick expense logging, and CI are in place. Today has a minimal remaining amount.
+> categories, quick expense logging, the Today view, and CI are in place.
 
 ## Budget setup
 
-On first launch (no saved budget) the app opens **Set Up Budget**. After that, the gear button on
-the main screen reopens it as **Budget**, with Cancel and Save.
+On first launch (no saved budget) the app opens **Set Up Budget** as a sheet over Today.
+Cancel or dismiss the sheet to see the Today empty state. **Set up budget** opens it again.
+Saving the first budget replaces the empty state with Today and removes the setup sheet.
+After that, the gear button reopens it as **Budget**, with Cancel and Save.
 
 - **Pay period:** weekly, biweekly (the default), or monthly, plus the payday the first period
   starts on.
@@ -65,6 +67,27 @@ most recently logged distinct categories first, then the rest in saved order. It
 so logging a backdated expense still makes that category recent. Equal logging times keep saved
 order. Normal create/delete operations fetch Other directly and only seed if it is missing.
 
+## Today
+
+The large USD figure shows **Left to spend today**. It scales with Dynamic Type up to 96 points
+and shrinks to fit one line on narrow screens. Spent today and today's allowance appear below it,
+followed by the period remainder and days left, including today. Carry-in appears only when
+carryover is enabled at the current period's start, so a pending settings change cannot hide it.
+
+The daily remainder determines the state. Negative means **Over budget**. Less than 20% of a
+positive daily allowance means **Near limit**; exactly 20% stays **On track**. Zero or negative
+allowances skip the percentage comparison. Each state has a symbol and text as well as a color.
+`TodayStatus` uses decimal arithmetic to compare integer cents without overflow or rounding.
+
+Only today's expenses appear, newest spending date first, then newest `createdAt` for ties.
+Rows show category symbols and colors, notes, amounts, and times. Negative expenses have an
+explicit **Refund** label. System backgrounds support dark mode. The undo banner insets the scroll
+area, and extra bottom padding keeps the final row clear at accessibility text sizes.
+
+Today refreshes at calendar midnight and whenever the app becomes active. `nextMidnight` uses
+calendar day boundaries, including Chicago's 23-hour and 25-hour DST days. The midnight task
+cancels and reschedules when the foreground refresh changes the current time.
+
 ## Quick expense logging
 
 Tap **Log Expense** on Today to open the USD decimal keypad, focused on the amount. Enter a
@@ -73,10 +96,11 @@ Category and note are optional (category defaults to Other). **Refund** saves th
 as a negative expense. The date defaults to now and can only be backdated within the current
 period. A budget whose first period starts in the future permits today only until that start.
 
-Saving updates **Remaining today** from `AllowanceEngine` through the model adapter and SwiftData
+Saving updates **Left to spend today** from `AllowanceEngine` through the model adapter and SwiftData
 queries, and plays success haptic feedback. An **Undo** banner deletes the saved expense for five
 seconds; saving again replaces that opportunity. The sheet uses standard Dynamic Type controls,
-and the undo banner stacks at accessibility sizes.
+and the undo banner stacks at accessibility sizes. Dismissing the keyboard scrolls the Date field
+into view after the keyboard animation.
 
 `ExpenseDraft` shares `BudgetDraft` parsing, validates the amount, applies the refund sign, clamps
 the date again at save time, and creates expenses exclusively through `CategoryService`.
@@ -97,6 +121,9 @@ reopened from Settings), `setup-warning` (bills and savings exceed spendable),
 `categories` (seeded category settings), and `category-picker` (a sheet with Shopping, Groceries,
 and Transport first based on sample expenses), `quick-log-empty` (empty sheet, Save disabled),
 `quick-log-filled` (amount, Food category, and note), and `today-undo` (saved expense and Undo).
+Today scenarios: `today-normal` ($80 left), `today-near` ($10 left), `today-over` (-$20 left),
+and `today-no-budget` (the empty state with setup closed). These use a fixed local noon on
+June 10, 2026, and categorized expenses including a refund.
 The undo scenario delays showing its five-second banner until launch has settled for CI capture.
 
 ```sh
@@ -181,9 +208,13 @@ macOS runner. It:
 5. If the tests pass, installs the built app on the same simulator with the status bar clock set
    to 9:41, launches each screenshot scenario (see [Launch arguments](#launch-arguments)), and
    uploads `screenshots/<ticket>-<scenario>.png` as the `screenshots` artifact: setup uses 430,
-   categories and category-picker use 440, and quick logging uses 432. A failed capture fails
+   categories and category-picker use 440, quick logging uses 432, and the four Today scenarios
+   use 433. A failed capture fails
    the job. Every scenario is captured at default and largest accessibility text sizes. Setup
    scenarios also get a second accessibility capture scrolled to the amount fields.
+   `today-normal` and `today-over` also get dark captures at both sizes, named
+   `433-<scenario>-dark.png` and `433-<scenario>-ax5-dark.png`. The capture step restores light
+   appearance and default text size even on failure.
 6. Uploads the `.xcresult` bundles as an artifact if any step fails.
 
 A newer push to the same pull request cancels the older run. Runs on `main` are never cancelled.

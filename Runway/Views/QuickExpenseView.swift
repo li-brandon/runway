@@ -86,14 +86,17 @@ struct QuickExpenseView: View {
             TextField("Note (optional)", text: $draft.note, axis: .vertical)
               .focused($focusedField, equals: .note)
               .frame(minHeight: 44)
-            if dynamicTypeSize.isAccessibilitySize {
-              VStack(alignment: .leading, spacing: 8) {
-                Text("Date")
-                datePicker.labelsHidden()
+            Group {
+              if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                  Text("Date")
+                  datePicker.labelsHidden()
+                }
+              } else {
+                datePicker
               }
-            } else {
-              datePicker
             }
+            .id("expense-date")
           }
           if let errorMessage {
             Text(errorMessage)
@@ -101,6 +104,17 @@ struct QuickExpenseView: View {
           }
         }
         .scrollDismissesKeyboard(.interactively)
+        .task(id: focusedField) {
+          guard focusedField == nil else { return }
+          do {
+            try await Task.sleep(for: .milliseconds(350))
+          } catch {
+            return
+          }
+          withAnimation {
+            proxy.scrollTo("expense-date", anchor: .bottom)
+          }
+        }
         .navigationTitle("Log Expense")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
