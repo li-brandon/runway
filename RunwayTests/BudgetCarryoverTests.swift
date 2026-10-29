@@ -60,6 +60,7 @@ struct BudgetCarryoverTests {
     #expect(changes.count == 1)
     let change = try #require(changes.first)
     #expect(!change.enabled)
+    #expect(change.previousEnabled)
     #expect(change.effectiveAt == calendar.date(2026, 6, 15))
     #expect(change.budget?.persistentModelID == budget.persistentModelID)
 
@@ -104,8 +105,16 @@ struct BudgetCarryoverTests {
     #expect(budget.carryoverEnabled)
     #expect(
       BudgetSnapshot(budget).carryoverChanges == [
-        CarryoverChangeSnapshot(enabled: false, effectiveAt: calendar.date(2026, 6, 15)),
-        CarryoverChangeSnapshot(enabled: true, effectiveAt: calendar.date(2026, 6, 22)),
+        CarryoverChangeSnapshot(
+          enabled: false,
+          previousEnabled: true,
+          effectiveAt: calendar.date(2026, 6, 15)
+        ),
+        CarryoverChangeSnapshot(
+          enabled: true,
+          previousEnabled: false,
+          effectiveAt: calendar.date(2026, 6, 22)
+        ),
       ]
     )
 
@@ -116,6 +125,110 @@ struct BudgetCarryoverTests {
       calendar.date(2026, 6, 22, 9),
     ]
     #expect(days.map { allowance(budget, now: $0).carryInCents } == [20_000, 0, 70_000])
+  }
+
+  @Test("Setting the value already in effect records no change")
+  func settingCurrentValue() throws {
+    let context = ModelContext(container)
+    let budget = try makeBudget(in: context)
+
+    budget.setCarryover(true, now: calendar.date(2026, 6, 10, 12), calendar: calendar)
+    try context.save()
+    #expect(budget.carryoverEnabled)
+    #expect(try context.fetchCount(FetchDescriptor<CarryoverChange>()) == 0)
+
+    // Once "off" has applied, setting it again leaves the history alone.
+    budget.setCarryover(false, now: calendar.date(2026, 6, 10, 12), calendar: calendar)
+    budget.setCarryover(false, now: calendar.date(2026, 6, 17, 12), calendar: calendar)
+    try context.save()
+    #expect(!budget.carryoverEnabled)
+    #expect(
+      BudgetSnapshot(budget).carryoverChanges == [
+        CarryoverChangeSnapshot(
+          enabled: false,
+          previousEnabled: true,
+          effectiveAt: calendar.date(2026, 6, 15)
+        )
+      ]
+    )
+  }
+
+  @Test("Moving the payday moves a pending change to the new next boundary")
+  func movePaydayMovesPendingChange() throws {
+    let context = ModelContext(container)
+    let budget = try makeBudget(in: context)
+    let now = calendar.date(2026, 6, 10, 12)
+    budget.setCarryover(false, now: now, calendar: calendar)
+
+    // Wednesday paydays: periods start Jun 3, Jun 10, Jun 17.
+    budget.updatePeriod(.weekly, start: calendar.date(2026, 6, 3), now: now, calendar: calendar)
+    try context.save()
+
+    #expect(budget.periodStart == calendar.date(2026, 6, 3))
+    #expect(try context.fetchCount(FetchDescriptor<CarryoverChange>()) == 1)
+    #expect(
+      BudgetSnapshot(budget).carryoverChanges == [
+        CarryoverChangeSnapshot(
+          enabled: false,
+          previousEnabled: true,
+          effectiveAt: calendar.date(2026, 6, 17)
+        )
+      ]
+    )
+    // Jun 3–9 spent $500 of $700, carried into Jun 10. Off from Jun 17.
+    #expect(allowance(budget, now: calendar.date(2026, 6, 12, 9)).carryInCents == 20_000)
+    #expect(allowance(budget, now: calendar.date(2026, 6, 17, 9)).carryInCents == 0)
+  }
+
+  @Test("Changing the period length moves a pending change to the new next boundary")
+  func changeLengthMovesPendingChange() throws {
+    let context = ModelContext(container)
+    let budget = try makeBudget(in: context)
+    let now = calendar.date(2026, 6, 10, 12)
+    budget.setCarryover(false, now: now, calendar: calendar)
+
+    budget.updatePeriod(.monthly, start: calendar.date(2026, 6, 1), now: now, calendar: calendar)
+    try context.save()
+
+    #expect(budget.periodLength == .monthly)
+    #expect(budget.carryoverChanges.map(\.effectiveAt) == [calendar.date(2026, 7, 1)])
+    #expect(try context.fetchCount(FetchDescriptor<CarryoverChange>()) == 1)
+  }
+
+  @Test("A period change drops pending changes that end up matching the setting in effect")
+  func periodChangeDropsRedundantChanges() throws {
+    let context = ModelContext(container)
+    let budget = try makeBudget(in: context)
+    budget.setCarryover(false, now: calendar.date(2026, 6, 10, 12), calendar: calendar)
+    let now = calendar.date(2026, 6, 17, 12)
+    budget.setCarryover(true, now: now, calendar: calendar)
+    #expect(budget.carryoverChanges.count == 2)
+
+    // Friday paydays starting Jun 12: the current period is Jun 12–18, so neither the Jun 15
+    // "off" nor the Jun 22 "on" has applied yet. Together they're a no-op.
+    budget.updatePeriod(.weekly, start: calendar.date(2026, 6, 12), now: now, calendar: calendar)
+    try context.save()
+
+    #expect(budget.carryoverEnabled)
+    #expect(budget.carryoverChanges.isEmpty)
+    #expect(try context.fetchCount(FetchDescriptor<CarryoverChange>()) == 0)
+  }
+
+  @Test("A period change keeps changes that have already applied")
+  func periodChangeKeepsAppliedChanges() throws {
+    let context = ModelContext(container)
+    let budget = try makeBudget(in: context)
+    budget.setCarryover(false, now: calendar.date(2026, 6, 10, 12), calendar: calendar)
+    let before = BudgetSnapshot(budget).carryoverChanges
+
+    // Biweekly from Jun 1: Jun 17 is in Jun 15–28, so the Jun 15 change has applied.
+    let now = calendar.date(2026, 6, 17, 12)
+    budget.updatePeriod(.biweekly, start: calendar.date(2026, 6, 1), now: now, calendar: calendar)
+    budget.updatePeriod(.biweekly, start: calendar.date(2026, 6, 1), now: now, calendar: calendar)
+    try context.save()
+
+    #expect(BudgetSnapshot(budget).carryoverChanges == before)
+    #expect(try context.fetchCount(FetchDescriptor<CarryoverChange>()) == 1)
   }
 
   @Test("Deleting a budget deletes its carryover changes")

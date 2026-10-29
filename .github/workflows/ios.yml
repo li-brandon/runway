@@ -104,6 +104,7 @@ jobs:
           read -r SIM_UDID SIM_RUNTIME SIM_NAME <<< "$PICK"
           echo "Using simulator: $SIM_NAME ($SIM_RUNTIME, $SIM_UDID)"
           echo "DESTINATION=platform=iOS Simulator,id=$SIM_UDID" >> "$GITHUB_ENV"
+          echo "SIM_UDID=$SIM_UDID" >> "$GITHUB_ENV"
 
       - name: Build for testing
         run: |
@@ -131,6 +132,34 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=''
+
+      - name: Screenshots
+        run: |
+          APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/Runway.app"
+          BUNDLE_ID=com.librandon.runway
+          mkdir -p screenshots
+
+          # Boots the simulator if the test run left it shut down, and waits until it's ready.
+          xcrun simctl bootstatus "$SIM_UDID" -b
+          xcrun simctl status_bar "$SIM_UDID" override --time 9:41
+          xcrun simctl install "$SIM_UDID" "$APP_PATH"
+
+          for SCENARIO in setup-empty setup-filled setup-warning; do
+            echo "Capturing $SCENARIO"
+            xcrun simctl launch --terminate-running-process "$SIM_UDID" "$BUNDLE_ID" \
+              -RunwayInMemoryStore -RunwayScreenshotScenario "$SCENARIO"
+            sleep 6
+            xcrun simctl io "$SIM_UDID" screenshot "screenshots/430-$SCENARIO.png"
+          done
+          xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" || true
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: screenshots
+          path: screenshots/*.png
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload result bundles
         if: failure()

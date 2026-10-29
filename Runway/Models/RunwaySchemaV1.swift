@@ -98,11 +98,14 @@ extension RunwaySchemaV1 {
   @Model
   final class CarryoverChange {
     var enabled: Bool = true
+    /// The setting in effect before this change, so the engine never has to assume it.
+    var previousEnabled: Bool = false
     var effectiveAt: Date = Date.now
     var budget: Budget?
 
-    init(enabled: Bool, effectiveAt: Date) {
+    init(enabled: Bool, previousEnabled: Bool, effectiveAt: Date) {
       self.enabled = enabled
+      self.previousEnabled = previousEnabled
       self.effectiveAt = effectiveAt
     }
   }
