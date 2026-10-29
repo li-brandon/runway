@@ -333,6 +333,15 @@ struct BudgetDraft: Equatable, Sendable {
     return "\(dollars)\(separator)\(remainder < 10 ? "0" : "")\(remainder)"
   }
 
+  /// Reformats a valid typed amount as currency for display, e.g. `"2400"` → `"$2,400.00"` in
+  /// `en_US`. Empty or invalid text is returned unchanged, and so is any amount whose currency
+  /// format wouldn't parse back to the same cents (e.g. a locale that writes `US$`).
+  static func displayText(for text: String, locale: Locale = .autoupdatingCurrent) -> String {
+    guard case .cents(let cents) = parseAmount(text, locale: locale) else { return text }
+    let formatted = Money.format(cents: cents, locale: locale)
+    return parseAmount(formatted, locale: locale) == .cents(cents) ? formatted : text
+  }
+
   private func parse(_ text: String) -> ParsedAmount {
     Self.parseAmount(text, locale: locale)
   }

@@ -59,8 +59,18 @@ struct BudgetSetupView: View {
       }
 
       Section {
-        AmountField("Spendable per period", text: $draft.spendableText, issue: issues[.spendable])
-        AmountField("Income (optional)", text: $draft.incomeText, issue: issues[.income])
+        AmountField(
+          "Spendable per period",
+          text: $draft.spendableText,
+          issue: issues[.spendable],
+          locale: draft.locale
+        )
+        AmountField(
+          "Income (optional)",
+          text: $draft.incomeText,
+          issue: issues[.income],
+          locale: draft.locale
+        )
         Button("Use Income") {
           draft.useIncomeForSpendable()
         }
@@ -76,7 +86,8 @@ struct BudgetSetupView: View {
           BillRow(
             bill: $bill,
             nameIssue: issues[.billName(bill.id)],
-            amountIssue: issues[.billAmount(bill.id)]
+            amountIssue: issues[.billAmount(bill.id)],
+            locale: draft.locale
           )
         }
         .onDelete { offsets in
@@ -92,7 +103,12 @@ struct BudgetSetupView: View {
       }
 
       Section {
-        AmountField("Savings per period", text: $draft.savingsText, issue: issues[.savings])
+        AmountField(
+          "Savings per period",
+          text: $draft.savingsText,
+          issue: issues[.savings],
+          locale: draft.locale
+        )
       } header: {
         Text("Savings")
       }
@@ -146,29 +162,70 @@ struct BudgetSetupView: View {
   }
 }
 
-/// A labeled dollar amount text field with an inline validation message.
+/// A labeled dollar amount text field with an inline validation message. The label wraps rather
+/// than truncates, and sits above the field at accessibility text sizes. A valid amount is
+/// reformatted as currency when the field loses focus.
 private struct AmountField: View {
   let title: LocalizedStringKey
   @Binding var text: String
   var issue: BudgetDraft.Issue?
+  var locale: Locale
 
-  init(_ title: LocalizedStringKey, text: Binding<String>, issue: BudgetDraft.Issue?) {
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @FocusState private var isFocused: Bool
+
+  init(
+    _ title: LocalizedStringKey,
+    text: Binding<String>,
+    issue: BudgetDraft.Issue?,
+    locale: Locale
+  ) {
     self.title = title
     _text = text
     self.issue = issue
+    self.locale = locale
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      LabeledContent(title) {
-        TextField(title, text: $text, prompt: Text("$0.00"))
-          .keyboardType(.decimalPad)
-          .multilineTextAlignment(.trailing)
+      if dynamicTypeSize.isAccessibilitySize {
+        VStack(alignment: .leading, spacing: 4) {
+          label
+          field
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      } else {
+        HStack(spacing: 12) {
+          label
+          Spacer(minLength: 0)
+          field
+            .multilineTextAlignment(.trailing)
+            .frame(minWidth: 80, maxWidth: 140, alignment: .trailing)
+        }
       }
       if let issue {
         IssueText(issue: issue)
       }
     }
+    .onChange(of: isFocused) { _, focused in
+      guard !focused else { return }
+      text = BudgetDraft.displayText(for: text, locale: locale)
+    }
+  }
+
+  private var label: some View {
+    Text(title)
+      .fixedSize(horizontal: false, vertical: true)
+      // The text field already carries the title for VoiceOver.
+      .accessibilityHidden(true)
+      .layoutPriority(1)
+  }
+
+  private var field: some View {
+    TextField(title, text: $text, prompt: Text("$0.00"))
+      .keyboardType(.decimalPad)
+      .focused($isFocused)
   }
 }
 
@@ -176,6 +233,7 @@ private struct BillRow: View {
   @Binding var bill: BudgetDraft.Bill
   var nameIssue: BudgetDraft.Issue?
   var amountIssue: BudgetDraft.Issue?
+  var locale: Locale
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -183,7 +241,7 @@ private struct BillRow: View {
       if let nameIssue {
         IssueText(issue: nameIssue)
       }
-      AmountField("Amount", text: $bill.amountText, issue: amountIssue)
+      AmountField("Amount", text: $bill.amountText, issue: amountIssue, locale: locale)
       Picker("Due day", selection: $bill.dueDay) {
         Text("None").tag(Int?.none)
         ForEach(1...31, id: \.self) { day in

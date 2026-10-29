@@ -88,6 +88,37 @@ struct BudgetDraftTests {
     #expect(BudgetDraft.parseAmount(text, locale: locale) == .cents(cents))
   }
 
+  @Test(
+    "Formats valid amounts as currency for display",
+    arguments: zip(
+      ["2400", "45.5", "$1,234.56", "0"],
+      ["$2,400.00", "$45.50", "$1,234.56", "$0.00"]
+    )
+  )
+  func formatsDisplayText(text: String, displayText: String) {
+    #expect(BudgetDraft.displayText(for: text, locale: locale) == displayText)
+  }
+
+  @Test(
+    "Display text parses back to the same cents",
+    arguments: ["en_US", "de_DE", "fr_FR", "en_CA", "ja_JP", "de_CH"]
+  )
+  func displayTextRoundTrips(identifier: String) {
+    let locale = Locale(identifier: identifier)
+    for cents in [0, 7, 4_550, 240_000, 123_456_789] {
+      let text = BudgetDraft.text(fromCents: cents, locale: locale)
+      let displayText = BudgetDraft.displayText(for: text, locale: locale)
+      #expect(BudgetDraft.parseAmount(displayText, locale: locale) == .cents(cents))
+      // Formatting again doesn't change it.
+      #expect(BudgetDraft.displayText(for: displayText, locale: locale) == displayText)
+    }
+  }
+
+  @Test("Leaves empty or invalid text alone", arguments: ["", "  ", "abc", "-5", "12.345"])
+  func displayTextKeepsInvalid(text: String) {
+    #expect(BudgetDraft.displayText(for: text, locale: locale) == text)
+  }
+
   // MARK: - Available and validation
 
   @Test("Available is spendable minus bills minus savings")
