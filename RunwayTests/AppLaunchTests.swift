@@ -8,7 +8,7 @@ import Testing
 struct AppLaunchTests {
   let calendar = Calendar.gregorian("America/Chicago")
 
-  @Test("Without a budget the app opens setup; with one it opens the main screen")
+  @Test("Without a budget Today hosts setup; with one it opens the main screen")
   func route() {
     #expect(AppRoute(hasBudget: false) == .setup)
     #expect(AppRoute(hasBudget: true) == .main)
@@ -90,6 +90,10 @@ struct AppLaunchTests {
         "quick-log-filled",
         "quick-log-note",
         "today-undo",
+        "today-normal",
+        "today-near",
+        "today-over",
+        "today-no-budget",
       ]
     )
   }
@@ -118,6 +122,9 @@ struct AppLaunchTests {
         .quickLogFilled: 99_500,
         .quickLogNote: 99_500,
         .todayUndo: 99_500,
+        .todayNormal: 110_000,
+        .todayNear: 110_000,
+        .todayOver: 110_000,
       ]
     )
   }

@@ -140,11 +140,13 @@ jobs:
           BUNDLE_ID=com.librandon.runway
           SCENARIOS="setup-empty setup-filled setup-warning categories category-picker"
           SCENARIOS="$SCENARIOS quick-log-empty quick-log-filled quick-log-note today-undo"
+          SCENARIOS="$SCENARIOS today-normal today-near today-over today-no-budget"
           ticket_for() {
             case "$1" in
               setup-*) echo 430 ;;
               categories|category-picker) echo 440 ;;
               quick-log-*|today-undo) echo 432 ;;
+              today-normal|today-near|today-over|today-no-budget) echo 433 ;;
               *) return 1 ;;
             esac
           }
@@ -254,8 +256,12 @@ jobs:
           xcrun simctl bootstatus "$SHOT_UDID" -b
           xcrun simctl status_bar "$SHOT_UDID" override --time 9:41
           xcrun simctl install "$SHOT_UDID" "$APP_PATH"
-          # Leave the text size at the default even if a capture fails.
-          trap 'xcrun simctl ui "$SHOT_UDID" content_size large || true' EXIT
+          # Restore appearance and text size even if a capture fails.
+          reset_appearance() {
+            xcrun simctl ui "$SHOT_UDID" appearance light || true
+            xcrun simctl ui "$SHOT_UDID" content_size large || true
+          }
+          trap reset_appearance EXIT
 
           # capture <scenario> <output png> [launch arguments...]: relaunches and saves a shot.
           capture() {
@@ -272,6 +278,7 @@ jobs:
             fi
           }
 
+          xcrun simctl ui "$SHOT_UDID" appearance light
           xcrun simctl ui "$SHOT_UDID" content_size large
           for SCENARIO in $SCENARIOS; do
             capture "$SCENARIO" "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO.png"
@@ -289,6 +296,16 @@ jobs:
             esac
           done
 
+          xcrun simctl ui "$SHOT_UDID" appearance dark
+          for SIZE in large accessibility-extra-extra-extra-large; do
+            xcrun simctl ui "$SHOT_UDID" content_size "$SIZE"
+            SUFFIX=""
+            if [ "$SIZE" != large ]; then SUFFIX="-ax5"; fi
+            for SCENARIO in today-normal today-over; do
+              capture "$SCENARIO" "screenshots/433-$SCENARIO$SUFFIX-dark.png"
+            done
+          done
+          xcrun simctl ui "$SHOT_UDID" appearance light
           xcrun simctl ui "$SHOT_UDID" content_size large
           xcrun simctl terminate "$SHOT_UDID" "$BUNDLE_ID" || true
 

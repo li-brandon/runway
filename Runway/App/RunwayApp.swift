@@ -15,7 +15,11 @@ struct RunwayApp: App {
       try CategoryService(context: container.mainContext).seed()
       try container.mainContext.save()
       if let scenario = options.screenshotScenario {
-        try scenario.seed(into: container.mainContext, now: .now, calendar: .current)
+        try scenario.seed(
+          into: container.mainContext,
+          now: scenario.todayDate ?? .now,
+          calendar: .current
+        )
       }
       modelContainer = container
     } catch {
