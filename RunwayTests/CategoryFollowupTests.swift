@@ -28,7 +28,7 @@ struct CategoryFollowupTests {
     try service.delete(bills)
     try context.save()
     // A legacy uncategorized row proves seed's full repair pass did not run.
-    let legacy = Expense(amountCents: 50)
+    let legacy = makeFixtureExpense(amountCents: 50)
     context.insert(legacy)
     try service.createExpense(amountCents: 100)
     #expect(legacy.category == nil)

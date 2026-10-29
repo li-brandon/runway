@@ -135,6 +135,7 @@ struct ContentView: View {
       }
       .onReceive(
         NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)
+          .receive(on: RunLoop.main)
       ) { _ in
         now = .now
       }

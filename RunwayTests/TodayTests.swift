@@ -109,11 +109,11 @@ struct TodayTests {
   func expenseOrdering() {
     let now = calendar.date(2026, 6, 10, 12)
     let morning = calendar.date(2026, 6, 10, 8)
-    let first = Expense(amountCents: 100, date: morning, createdAt: morning)
-    let second = Expense(amountCents: 200, date: morning, createdAt: now)
-    let refund = Expense(amountCents: -50, date: now, createdAt: morning)
-    let yesterday = Expense(amountCents: 300, date: calendar.date(2026, 6, 9, 23, 59))
-    let tomorrow = Expense(amountCents: 400, date: calendar.date(2026, 6, 11))
+    let first = makeFixtureExpense(amountCents: 100, date: morning, createdAt: morning)
+    let second = makeFixtureExpense(amountCents: 200, date: morning, createdAt: now)
+    let refund = makeFixtureExpense(amountCents: -50, date: now, createdAt: morning)
+    let yesterday = makeFixtureExpense(amountCents: 300, date: calendar.date(2026, 6, 9, 23, 59))
+    let tomorrow = makeFixtureExpense(amountCents: 400, date: calendar.date(2026, 6, 11))
     let all = [tomorrow, first, yesterday, second, refund]
     let today = todayExpenses(all, now: now, calendar: calendar)
     #expect(today.map(\.amountCents) == [-50, 200, 100])
