@@ -54,11 +54,12 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case todayNormal = "today-normal"
   case todayNear = "today-near"
   case todayOver = "today-over"
+  case todayZero = "today-zero"
   case todayNoBudget = "today-no-budget"
 
   var todayDate: Date? {
     switch self {
-    case .todayNormal, .todayNear, .todayOver, .todayNoBudget:
+    case .todayNormal, .todayNear, .todayOver, .todayZero, .todayNoBudget:
       Calendar.current.date(from: DateComponents(year: 2026, month: 6, day: 10, hour: 12))
     default:
       nil
@@ -110,6 +111,9 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
         periodStart: periodStart,
         spendablePerPeriodCents: 110_000
       )
+      bills = []
+    case .todayZero:
+      budget = Budget(periodStart: periodStart, spendablePerPeriodCents: 0)
       bills = []
     case .setupWarning:
       // 1,200 - (1,100 + 250) - 100 = -250 available.

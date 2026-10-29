@@ -14,6 +14,20 @@ struct AppLaunchTests {
     #expect(AppRoute(hasBudget: true) == .main)
   }
 
+  @Test("The empty-state action opens the setup sheet after it was dismissed")
+  func emptyStateOpensSetup() {
+    var state = TodayEmptyState()
+    #expect(state.showsSetup)
+    state.showsSetup = false
+    state.openSetup()
+    #expect(state.showsSetup)
+
+    var screenshotState = TodayEmptyState(opensSetup: false)
+    #expect(!screenshotState.showsSetup)
+    screenshotState.openSetup()
+    #expect(screenshotState.showsSetup)
+  }
+
   @Test("No launch arguments means the on-disk store and no scenario")
   func defaultLaunchOptions() {
     let options = LaunchOptions(arguments: ["Runway"])
@@ -93,6 +107,7 @@ struct AppLaunchTests {
         "today-normal",
         "today-near",
         "today-over",
+        "today-zero",
         "today-no-budget",
       ]
     )
@@ -125,6 +140,7 @@ struct AppLaunchTests {
         .todayNormal: 110_000,
         .todayNear: 110_000,
         .todayOver: 110_000,
+        .todayZero: 0,
       ]
     )
   }

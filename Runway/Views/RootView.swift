@@ -38,10 +38,10 @@ struct RootView: View {
 }
 
 struct TodayEmptyView: View {
-  @State private var showsSetup: Bool
+  @State private var state: TodayEmptyState
 
   init(opensSetup: Bool = true) {
-    _showsSetup = State(initialValue: opensSetup)
+    _state = State(initialValue: TodayEmptyState(opensSetup: opensSetup))
   }
 
   var body: some View {
@@ -52,18 +52,18 @@ struct TodayEmptyView: View {
         } description: {
           Text("Set up a budget to see what you can spend today.")
         } actions: {
-          Button("Set up budget") { showsSetup = true }
+          Button("Set up budget") { state.openSetup() }
             .buttonStyle(.borderedProminent)
             .frame(minHeight: 44)
         }
       }
       .navigationTitle("Today")
-      .sheet(isPresented: $showsSetup) {
+      .sheet(isPresented: $state.showsSetup) {
         NavigationStack {
           BudgetSetupView(budget: nil)
             .toolbar {
               ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { showsSetup = false }
+                Button("Cancel") { state.showsSetup = false }
               }
             }
         }
