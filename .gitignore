@@ -1,0 +1,12 @@
+.DS_Store
+xcuserdata/
+DerivedData/
+TestResults/
+*.xcresult
+build/
+.build/
+Config/Secrets.xcconfig
+.env*
+!.env.example
+.claude/
+openspec/
