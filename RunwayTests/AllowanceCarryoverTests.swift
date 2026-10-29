@@ -18,13 +18,21 @@ struct AllowanceCarryoverTests {
     ]
   }
 
-  func makeBudget(carryoverEnabled: Bool) -> BudgetSnapshot {
+  func makeBudget(
+    carryoverEnabled: Bool,
+    changes: [CarryoverChangeSnapshot] = []
+  ) -> BudgetSnapshot {
     BudgetSnapshot(
       periodLength: .weekly,
       periodStart: calendar.date(2026, 6, 1),
       spendablePerPeriodCents: 70_000,
-      carryoverEnabled: carryoverEnabled
+      carryoverEnabled: carryoverEnabled,
+      carryoverChanges: changes
     )
+  }
+
+  func change(_ enabled: Bool, effectiveAt: Date) -> CarryoverChangeSnapshot {
+    CarryoverChangeSnapshot(enabled: enabled, effectiveAt: effectiveAt)
   }
 
   @Test("Carry-out of a completed period is spendable + carry-in - spent, and can be negative")
@@ -88,29 +96,19 @@ struct AllowanceCarryoverTests {
 
   @Test("Turning carryover off mid-period keeps this period's carry-in and zeroes the next")
   func toggledOffMidPeriod() {
-    let budget = makeBudget(carryoverEnabled: true)
-    let changes = [CarryoverChange(date: calendar.date(2026, 6, 10, 12), enabled: false)]
+    // The setting is now off; boundaries before the change use its opposite (on).
+    let budget = makeBudget(
+      carryoverEnabled: false,
+      changes: [change(false, effectiveAt: calendar.date(2026, 6, 15))]
+    )
 
-    #expect(
-      engine.isCarryoverEnabled(
-        atBoundary: calendar.date(2026, 6, 8),
-        budget: budget,
-        carryoverChanges: changes
-      )
-    )
-    #expect(
-      !engine.isCarryoverEnabled(
-        atBoundary: calendar.date(2026, 6, 15),
-        budget: budget,
-        carryoverChanges: changes
-      )
-    )
+    #expect(engine.isCarryoverEnabled(atBoundary: calendar.date(2026, 6, 8), budget: budget))
+    #expect(!engine.isCarryoverEnabled(atBoundary: calendar.date(2026, 6, 15), budget: budget))
 
     // 3 days left (Jun 12–14): (700 + 200 - 1_000) / 3 = -33.33…, floored to -33.34.
     let afterToggle = engine.currentAllowance(
       budget: budget,
       expenses: expenses,
-      carryoverChanges: changes,
       now: calendar.date(2026, 6, 12, 9)
     )
     #expect(afterToggle.carryInCents == 20_000)
@@ -122,7 +120,6 @@ struct AllowanceCarryoverTests {
     let nextPeriod = engine.currentAllowance(
       budget: budget,
       expenses: expenses,
-      carryoverChanges: changes,
       now: calendar.date(2026, 6, 15, 9)
     )
     #expect(nextPeriod.carryInCents == 0)
@@ -131,14 +128,16 @@ struct AllowanceCarryoverTests {
 
   @Test("Turning carryover on mid-period first carries this period's result into the next")
   func toggledOnMidPeriod() {
-    let budget = makeBudget(carryoverEnabled: false)
-    let changes = [CarryoverChange(date: calendar.date(2026, 6, 10, 12), enabled: true)]
+    // A mid-period `effectiveAt` applies from the next boundary (Jun 15).
+    let budget = makeBudget(
+      carryoverEnabled: true,
+      changes: [change(true, effectiveAt: calendar.date(2026, 6, 10, 12))]
+    )
 
     // (700 - 1_000) / 3 = -100.
     let afterToggle = engine.currentAllowance(
       budget: budget,
       expenses: expenses,
-      carryoverChanges: changes,
       now: calendar.date(2026, 6, 12, 9)
     )
     #expect(afterToggle.carryInCents == 0)
@@ -148,7 +147,6 @@ struct AllowanceCarryoverTests {
     let nextPeriod = engine.currentAllowance(
       budget: budget,
       expenses: expenses,
-      carryoverChanges: changes,
       now: calendar.date(2026, 6, 15, 9)
     )
     #expect(nextPeriod.carryInCents == -30_000)
@@ -156,26 +154,60 @@ struct AllowanceCarryoverTests {
     #expect(nextPeriod.remainingPeriodCents == 40_000)
   }
 
-  @Test("A change made exactly at a boundary waits for the following boundary")
+  @Test("A change effective exactly at a boundary applies from that boundary")
   func toggledAtBoundary() {
-    let budget = makeBudget(carryoverEnabled: true)
-    let changes = [CarryoverChange(date: calendar.date(2026, 6, 15), enabled: false)]
-
-    let atBoundary = engine.currentAllowance(
-      budget: budget,
+    let atBoundary = makeBudget(
+      carryoverEnabled: false,
+      changes: [change(false, effectiveAt: calendar.date(2026, 6, 15))]
+    )
+    let result = engine.currentAllowance(
+      budget: atBoundary,
       expenses: expenses,
-      carryoverChanges: changes,
       now: calendar.date(2026, 6, 15, 9)
     )
-    #expect(atBoundary.carryInCents == -10_000)
+    #expect(result.carryInCents == 0)
+    #expect(result.allowanceTodayCents == 10_000)
+
+    // One second later, it waits for the following boundary. Period 2 carries in -100 and
+    // spends nothing, so it would carry out 600 if carryover were still on.
+    let justAfter = makeBudget(
+      carryoverEnabled: false,
+      changes: [change(false, effectiveAt: calendar.date(2026, 6, 15, 0, 0, 1))]
+    )
+    let sameDay = engine.currentAllowance(
+      budget: justAfter,
+      expenses: expenses,
+      now: calendar.date(2026, 6, 15, 9)
+    )
+    #expect(sameDay.carryInCents == -10_000)
 
     let following = engine.currentAllowance(
-      budget: budget,
+      budget: justAfter,
       expenses: expenses,
-      carryoverChanges: changes,
       now: calendar.date(2026, 6, 22, 9)
     )
     #expect(following.carryInCents == 0)
     #expect(following.allowanceTodayCents == 10_000)
+  }
+
+  @Test("Each change applies from its own boundary; the value before the first is its opposite")
+  func severalChanges() {
+    let budget = makeBudget(
+      carryoverEnabled: true,
+      changes: [
+        change(false, effectiveAt: calendar.date(2026, 6, 15)),
+        change(true, effectiveAt: calendar.date(2026, 6, 22)),
+      ]
+    )
+    let days = [
+      calendar.date(2026, 6, 8, 9),
+      calendar.date(2026, 6, 15, 9),
+      calendar.date(2026, 6, 22, 9),
+    ]
+    let carryIns = days.map { now in
+      engine.currentAllowance(budget: budget, expenses: expenses, now: now).carryInCents
+    }
+    // Jun 8: on, +200. Jun 15: off, 0. Jun 22: on, and period 2 spent nothing: 700 + 0.
+    #expect(carryIns == [20_000, 0, 70_000])
   }
 }

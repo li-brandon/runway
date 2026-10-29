@@ -280,6 +280,42 @@ struct AllowanceEngineTests {
     #expect(nextPeriod.remainingPeriodCents == 61_000)
   }
 
+  @Test("Expenses dated before the budget's start are ignored, even in the preview and carryover")
+  func expensesBeforeStart() {
+    let expenses = [
+      expense(9_000, calendar.date(2026, 5, 31, 12)),
+      expense(3_000, calendar.date(2026, 6, 3, 12)),
+    ]
+
+    // Previewing period 0 later on the day of the early expense: nothing is spent yet.
+    let preview = engine.currentAllowance(
+      budget: budget,
+      expenses: expenses,
+      now: calendar.date(2026, 5, 31, 18)
+    )
+    #expect(preview.period.index == 0)
+    #expect(preview.allowanceTodayCents == 10_000)
+    #expect(preview.spentTodayCents == 0)
+    #expect(preview.remainingPeriodCents == 70_000)
+
+    // Jun 4–7 left: (700 - 30) / 4 = 167.50.
+    let fourthDay = engine.currentAllowance(
+      budget: budget,
+      expenses: expenses,
+      now: calendar.date(2026, 6, 4, 9)
+    )
+    #expect(fourthDay.daysLeft == 4)
+    #expect(fourthDay.allowanceTodayCents == 16_750)
+    #expect(fourthDay.remainingPeriodCents == 67_000)
+
+    let nextPeriod = engine.currentAllowance(
+      budget: budget,
+      expenses: expenses,
+      now: calendar.date(2026, 6, 8, 9)
+    )
+    #expect(nextPeriod.carryInCents == 67_000)
+  }
+
   @Test("Carryover is on by default")
   func carryoverDefault() {
     #expect(budget.carryoverEnabled)

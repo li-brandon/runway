@@ -55,7 +55,8 @@ Money is always stored and calculated as integer cents (`Int`). Values only beco
 display, and `Double` is never used for money.
 
 Schema changes go in a new `VersionedSchema` (`RunwaySchemaV2`, …) with a matching stage in
-`RunwayMigrationPlan`. Don't edit `RunwaySchemaV1` once it has shipped.
+`RunwayMigrationPlan`. Don't edit `RunwaySchemaV1` once it has shipped. V1 hasn't shipped yet, so
+until the first release it may still be edited in place without a migration.
 
 ## Code style
 

@@ -20,6 +20,8 @@ import Foundation
 ///   `remainingTodayCents`.
 /// - **Expenses** count only if their date is inside the period. Expenses dated after today are
 ///   ignored until their day arrives (but do count toward a completed period's carry-out).
+///   Expenses dated before the budget's start (the anchor's local midnight) belong to no period,
+///   so they never count, not even in the period-0 preview or its carry-out.
 /// - **Days left** is clamped explicitly: before the period starts, the result previews its first
 ///   day; after it ends, `daysLeft` is `0`, nothing is "spent today", and the whole remainder is
 ///   today's allowance (the divisor is clamped to 1, so there is never a divide-by-zero).
@@ -31,9 +33,11 @@ import Foundation
 ///   overspending as well as dropping leftovers.
 /// - **Changing the carryover setting** takes effect at the next period boundary. The setting is
 ///   evaluated once per boundary, when crossing into a new period: it is the `enabled` value of
-///   the last `CarryoverChange` dated strictly before the boundary, or
-///   `budget.carryoverEnabled` if there is none. Turning carryover off mid-period therefore keeps
-///   the current period's carry-in and only zeroes the next one.
+///   the last of `budget.carryoverChanges` whose `effectiveAt` is at or before the boundary, so a
+///   change effective exactly at a boundary applies at that boundary. Boundaries before the first
+///   change use the opposite of its `enabled` (each change flips the setting); with no changes,
+///   every boundary uses `budget.carryoverEnabled`. Turning carryover off mid-period therefore
+///   keeps the current period's carry-in and only zeroes the next one.
 struct AllowanceEngine: Sendable {
   let calendar: Calendar
 
@@ -43,16 +47,10 @@ struct AllowanceEngine: Sendable {
   func currentAllowance(
     budget: BudgetSnapshot,
     expenses: [ExpenseSnapshot],
-    carryoverChanges: [CarryoverChange] = [],
     now: Date
   ) -> AllowanceResult {
     let current = period(containing: now, of: budget)
-    let carryIn = carryInCents(
-      to: current,
-      budget: budget,
-      expenses: expenses,
-      carryoverChanges: carryoverChanges
-    )
+    let carryIn = carryInCents(to: current, budget: budget, expenses: expenses)
     return allowance(
       in: current,
       budget: budget,
@@ -135,12 +133,10 @@ struct AllowanceEngine: Sendable {
   }
 
   /// The carry-in for `period`, chaining every period from the anchor (period 0 has none).
-  /// `carryoverChanges` must be in chronological order.
   func carryInCents(
     to period: BudgetPeriod,
     budget: BudgetSnapshot,
-    expenses: [ExpenseSnapshot],
-    carryoverChanges: [CarryoverChange] = []
+    expenses: [ExpenseSnapshot]
   ) -> Int {
     guard period.index > 0 else { return 0 }
     var carryCents = 0
@@ -153,11 +149,7 @@ struct AllowanceEngine: Sendable {
         expenses: expenses,
         carryInCents: carryCents
       )
-      let enabled = isCarryoverEnabled(
-        atBoundary: next.start,
-        budget: budget,
-        carryoverChanges: carryoverChanges
-      )
+      let enabled = isCarryoverEnabled(atBoundary: next.start, budget: budget)
       carryCents = enabled ? carryOut : 0
       previous = next
     }
@@ -165,12 +157,10 @@ struct AllowanceEngine: Sendable {
   }
 
   /// The carryover setting applied when crossing into a period that starts at `boundary`.
-  func isCarryoverEnabled(
-    atBoundary boundary: Date,
-    budget: BudgetSnapshot,
-    carryoverChanges: [CarryoverChange]
-  ) -> Bool {
-    carryoverChanges.last { $0.date < boundary }?.enabled ?? budget.carryoverEnabled
+  func isCarryoverEnabled(atBoundary boundary: Date, budget: BudgetSnapshot) -> Bool {
+    let changes = budget.carryoverChanges
+    guard let first = changes.first else { return budget.carryoverEnabled }
+    return changes.last { $0.effectiveAt <= boundary }?.enabled ?? !first.enabled
   }
 
   // MARK: - Periods
@@ -251,8 +241,11 @@ struct BudgetSnapshot: Equatable, Sendable {
   /// Anchor for period 0. Only its local calendar day matters.
   var periodStart: Date
   var spendablePerPeriodCents: Int
-  /// The carryover setting in effect before any `CarryoverChange`. On by default.
+  /// The current carryover setting. On by default. Only used when `carryoverChanges` is empty.
   var carryoverEnabled = true
+  /// Every change to the carryover setting, sorted by `effectiveAt` (oldest first). Each change
+  /// is expected to flip the setting, so the value before the first one is its opposite.
+  var carryoverChanges: [CarryoverChangeSnapshot] = []
 }
 
 /// The expense fields the engine needs.
@@ -261,10 +254,11 @@ struct ExpenseSnapshot: Equatable, Sendable {
   var date: Date
 }
 
-/// A change to the carryover setting. It applies from the first period boundary after `date`.
-struct CarryoverChange: Equatable, Sendable {
-  var date: Date
+/// A change to the carryover setting. It applies from the first period boundary at or after
+/// `effectiveAt`.
+struct CarryoverChangeSnapshot: Equatable, Sendable {
   var enabled: Bool
+  var effectiveAt: Date
 }
 
 // MARK: - Outputs

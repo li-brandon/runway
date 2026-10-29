@@ -232,6 +232,100 @@ struct AllowancePeriodTests {
     #expect(result.remainingPeriodCents == 420_000)
   }
 
+  @Test("Monthly periods anchored on the 29th clamp to February's last day, then return")
+  func monthlyFrom29th() {
+    let engine = AllowanceEngine(calendar: chicago)
+
+    let common = monthlyBudget(anchoredOn: chicago.date(2026, 1, 29))
+    let commonStarts = (0...3).map { engine.period(at: $0, of: common).start }
+    #expect(
+      commonStarts == [
+        chicago.date(2026, 1, 29),
+        chicago.date(2026, 2, 28),
+        chicago.date(2026, 3, 29),
+        chicago.date(2026, 4, 29),
+      ]
+    )
+    let containing = [
+      (chicago.date(2026, 2, 27, 23, 59), 0),
+      (chicago.date(2026, 2, 28), 1),
+      (chicago.date(2026, 3, 28, 23, 59), 1),
+      (chicago.date(2026, 3, 29), 2),
+    ]
+    for (date, index) in containing {
+      #expect(engine.period(containing: date, of: common).index == index)
+    }
+    // Jan 29–Feb 27 is 30 days; Feb 28–Mar 28 is 29.
+    #expect(daysLeft(engine, common, on: chicago.date(2026, 1, 29, 9)) == 30)
+    #expect(daysLeft(engine, common, on: chicago.date(2026, 2, 28, 9)) == 29)
+
+    let leap = monthlyBudget(anchoredOn: chicago.date(2028, 1, 29))
+    let leapStarts = (0...2).map { engine.period(at: $0, of: leap).start }
+    #expect(
+      leapStarts == [
+        chicago.date(2028, 1, 29),
+        chicago.date(2028, 2, 29),
+        chicago.date(2028, 3, 29),
+      ]
+    )
+    #expect(engine.period(containing: chicago.date(2028, 2, 28, 23, 59), of: leap).index == 0)
+    #expect(engine.period(containing: chicago.date(2028, 2, 29), of: leap).index == 1)
+    // Jan 29–Feb 28 is 31 days; Feb 29–Mar 28 is 29.
+    #expect(daysLeft(engine, leap, on: chicago.date(2028, 1, 29, 9)) == 31)
+    #expect(daysLeft(engine, leap, on: chicago.date(2028, 2, 29, 9)) == 29)
+  }
+
+  @Test("Monthly periods anchored on the 30th clamp to February's last day, then return")
+  func monthlyFrom30th() {
+    let engine = AllowanceEngine(calendar: chicago)
+
+    let common = monthlyBudget(anchoredOn: chicago.date(2026, 1, 30))
+    let commonStarts = (0...3).map { engine.period(at: $0, of: common).start }
+    #expect(
+      commonStarts == [
+        chicago.date(2026, 1, 30),
+        chicago.date(2026, 2, 28),
+        chicago.date(2026, 3, 30),
+        chicago.date(2026, 4, 30),
+      ]
+    )
+    let containing = [
+      (chicago.date(2026, 2, 27, 23, 59), 0),
+      (chicago.date(2026, 2, 28), 1),
+      (chicago.date(2026, 3, 29, 23, 59), 1),
+      (chicago.date(2026, 3, 30), 2),
+    ]
+    for (date, index) in containing {
+      #expect(engine.period(containing: date, of: common).index == index)
+    }
+    // Jan 30–Feb 27 is 29 days; Feb 28–Mar 29 is 30.
+    #expect(daysLeft(engine, common, on: chicago.date(2026, 1, 30, 9)) == 29)
+    #expect(daysLeft(engine, common, on: chicago.date(2026, 2, 28, 9)) == 30)
+
+    let leap = monthlyBudget(anchoredOn: chicago.date(2028, 1, 30))
+    let leapStarts = (0...2).map { engine.period(at: $0, of: leap).start }
+    #expect(
+      leapStarts == [
+        chicago.date(2028, 1, 30),
+        chicago.date(2028, 2, 29),
+        chicago.date(2028, 3, 30),
+      ]
+    )
+    #expect(engine.period(containing: chicago.date(2028, 2, 28, 23, 59), of: leap).index == 0)
+    #expect(engine.period(containing: chicago.date(2028, 2, 29), of: leap).index == 1)
+    // Jan 30–Feb 28 is 30 days; Feb 29–Mar 29 is 30.
+    #expect(daysLeft(engine, leap, on: chicago.date(2028, 1, 30, 9)) == 30)
+    #expect(daysLeft(engine, leap, on: chicago.date(2028, 2, 29, 9)) == 30)
+  }
+
+  func monthlyBudget(anchoredOn anchor: Date) -> BudgetSnapshot {
+    BudgetSnapshot(periodLength: .monthly, periodStart: anchor, spendablePerPeriodCents: 300_000)
+  }
+
+  func daysLeft(_ engine: AllowanceEngine, _ budget: BudgetSnapshot, on now: Date) -> Int {
+    engine.allowance(budget: budget, expenses: [], carryInCents: 0, now: now).daysLeft
+  }
+
   @Test("Auckland spring-forward day (2026-09-27) counts as one day")
   func aucklandSpringForward() {
     let engine = AllowanceEngine(calendar: auckland)
