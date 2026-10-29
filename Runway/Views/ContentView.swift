@@ -141,8 +141,9 @@ struct ContentView: View {
   }
 
   private func undoBanner(_ opportunity: ExpenseUndo) -> some View {
-    let layout = dynamicTypeSize.isAccessibilitySize
-      ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 16))
+    let stacked = AnyLayout(VStackLayout(spacing: 8))
+    let inline = AnyLayout(HStackLayout(spacing: 16))
+    let layout = dynamicTypeSize.isAccessibilitySize ? stacked : inline
     return layout {
       Text("Expense saved")
         .font(.headline)
