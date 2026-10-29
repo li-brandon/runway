@@ -1,14 +1,16 @@
 import Foundation
 import SwiftData
 
-/// The first shipped SwiftData schema. All money values are stored as integer cents (USD).
+/// The first SwiftData schema. All money values are stored as integer cents (USD).
+///
+/// V1 hasn't shipped yet, so until the first release it may still be edited in place.
 enum RunwaySchemaV1: VersionedSchema {
   static var versionIdentifier: Schema.Version {
     Schema.Version(1, 0, 0)
   }
 
   static var models: [any PersistentModel.Type] {
-    [Budget.self, FixedBill.self, Expense.self, Category.self]
+    [Budget.self, FixedBill.self, Expense.self, Category.self, CarryoverChange.self]
   }
 }
 
@@ -16,6 +18,7 @@ typealias Budget = RunwaySchemaV1.Budget
 typealias FixedBill = RunwaySchemaV1.FixedBill
 typealias Expense = RunwaySchemaV1.Expense
 typealias Category = RunwaySchemaV1.Category
+typealias CarryoverChange = RunwaySchemaV1.CarryoverChange
 
 /// How long one budgeting period lasts.
 enum PeriodLength: String, Codable, CaseIterable, Sendable {
@@ -32,10 +35,16 @@ extension RunwaySchemaV1 {
     var spendablePerPeriodCents: Int = 0
     var incomeCents: Int?
     var savingsCents: Int = 0
-    var carryoverEnabled: Bool = false
+    /// The current carryover setting. Change it with `setCarryover(_:now:calendar:)` so the change
+    /// is recorded in `carryoverChanges` and only applies from the next period.
+    var carryoverEnabled: Bool = true
 
     @Relationship(deleteRule: .cascade, inverse: \FixedBill.budget)
     var fixedBills: [FixedBill] = []
+
+    /// Every change to `carryoverEnabled`, in no particular order.
+    @Relationship(deleteRule: .cascade, inverse: \CarryoverChange.budget)
+    var carryoverChanges: [CarryoverChange] = []
 
     init(
       periodLength: PeriodLength = .biweekly,
@@ -43,7 +52,7 @@ extension RunwaySchemaV1 {
       spendablePerPeriodCents: Int,
       incomeCents: Int? = nil,
       savingsCents: Int = 0,
-      carryoverEnabled: Bool = false
+      carryoverEnabled: Bool = true
     ) {
       self.periodLength = periodLength
       self.periodStart = periodStart
@@ -82,6 +91,19 @@ extension RunwaySchemaV1 {
       self.amountCents = amountCents
       self.note = note
       self.date = date
+    }
+  }
+
+  /// A change to `Budget.carryoverEnabled`. It applies from the period boundary `effectiveAt`.
+  @Model
+  final class CarryoverChange {
+    var enabled: Bool = true
+    var effectiveAt: Date = Date.now
+    var budget: Budget?
+
+    init(enabled: Bool, effectiveAt: Date) {
+      self.enabled = enabled
+      self.effectiveAt = effectiveAt
     }
   }
 

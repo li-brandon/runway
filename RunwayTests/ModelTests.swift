@@ -32,8 +32,9 @@ struct ModelTests {
     #expect(fetched.spendablePerPeriodCents == 50_000)
     #expect(fetched.incomeCents == 200_000)
     #expect(fetched.savingsCents == 10_000)
-    #expect(fetched.carryoverEnabled == false)
+    #expect(fetched.carryoverEnabled)
     #expect(fetched.fixedBills.isEmpty)
+    #expect(fetched.carryoverChanges.isEmpty)
   }
 
   @Test("Budget income is optional")

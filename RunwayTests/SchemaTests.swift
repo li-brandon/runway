@@ -8,7 +8,9 @@ struct SchemaTests {
   @Test("Current schema is version 1.0.0")
   func schemaVersion() {
     #expect(RunwaySchemaV1.versionIdentifier == Schema.Version(1, 0, 0))
-    #expect(RunwaySchemaV1.models.count == 4)
+    #expect(RunwaySchemaV1.models.count == 5)
+    let models = RunwaySchemaV1.models.map { ObjectIdentifier($0) }
+    #expect(models.contains(ObjectIdentifier(CarryoverChange.self)))
   }
 
   @Test("Migration plan lists V1 and has no stages yet")
@@ -21,7 +23,7 @@ struct SchemaTests {
   @Test("Every money attribute is stored as integer cents, never floating point")
   func moneyAttributesAreIntegers() {
     let schema = Schema(versionedSchema: RunwaySchemaV1.self)
-    #expect(schema.entities.count == 4)
+    #expect(schema.entities.count == 5)
 
     var centsAttributes: Set<String> = []
     for entity in schema.entities {
