@@ -97,7 +97,7 @@ struct BudgetSetupPersistenceTests {
     try context.save()
 
     let loaded = BudgetDraft(budget: budget, locale: locale)
-    let formatted = BudgetDraft.text(fromCents: cents, locale: locale)
+    let formatted = BudgetDraft.text(fromCents: cents)
     #expect(loaded.spendableText == formatted)
     #expect(loaded.incomeText == formatted)
     #expect(loaded.savingsText == formatted)

@@ -54,7 +54,7 @@ struct BudgetDraftTests {
     #expect(BudgetDraft.parseAmount(text, locale: locale) == .cents(cents))
   }
 
-  @Test("Blank text is empty, not zero", arguments: ["", "   ", "$"])
+  @Test("Blank text is empty, not zero", arguments: ["", "   "])
   func parsesEmpty(text: String) {
     #expect(BudgetDraft.parseAmount(text, locale: locale) == .empty)
   }
@@ -82,7 +82,46 @@ struct BudgetDraftTests {
     let german = Locale(identifier: "de_DE")
     #expect(BudgetDraft.parseAmount("1.234,56", locale: german) == .cents(123_456))
     #expect(BudgetDraft.parseAmount("12,5", locale: german) == .cents(1_250))
-    #expect(BudgetDraft.text(fromCents: 4_550, locale: german) == "$45.50")
+    #expect(BudgetDraft.text(fromCents: 4_550) == "$45.50")
+  }
+
+  @Test(
+    "Dollar text accepts German and US decimal separators",
+    arguments: zip(
+      ["$45,75", "$1,50", "$1.234,50", "$2,400", "$1.234"],
+      [4_575, 150, 123_450, 240_000, 123_400]
+    )
+  )
+  func parsesDollarSeparators(text: String, cents: Int) {
+    for identifier in ["de_DE", "en_US"] {
+      let locale = Locale(identifier: identifier)
+      #expect(BudgetDraft.parseAmount(text, locale: locale) == .cents(cents))
+    }
+  }
+
+  @Test(
+    "Rejects malformed dollar text",
+    arguments: [
+      "$", "$1,2,3", "$12,34,5", "$1.23.45,6", "$1,234,", "$1,,234",
+      "$1.234,5.6", "$$12", "$12a", "$١٢", "$.", "$1,234x",
+    ]
+  )
+  func rejectsMalformedDollarText(text: String) {
+    let german = Locale(identifier: "de_DE")
+    #expect(BudgetDraft.parseAmount(text, locale: german) == .failure(.invalid))
+  }
+
+  @Test("Editing formatted USD with the German decimal pad preserves cents")
+  func editsDollarTextWithLocale() {
+    let german = Locale(identifier: "de_DE")
+    var draft = BudgetDraft(periodStart: calendar.date(2026, 6, 5), locale: german)
+    draft.spendableText = BudgetDraft.text(fromCents: 4_550)
+    #expect(draft.spendableText == "$45.50")
+    draft.spendableText = draft.spendableText.replacingOccurrences(of: ".50", with: ",75")
+    #expect(draft.availableCents == 4_575)
+    let displayed = BudgetDraft.displayText(for: draft.spendableText, locale: german)
+    #expect(BudgetDraft.parseAmount(displayed, locale: german) == .cents(4_575))
+    #expect(draft.canSave)
   }
 
   @Test(
@@ -93,14 +132,14 @@ struct BudgetDraftTests {
     )
   )
   func formatsText(cents: Int, text: String) {
-    #expect(BudgetDraft.text(fromCents: cents, locale: locale) == text)
+    #expect(BudgetDraft.text(fromCents: cents) == text)
     #expect(BudgetDraft.parseAmount(text, locale: locale) == .cents(cents))
   }
 
   @Test("Arabic locale formats ASCII USD and round-trips", arguments: [0, 7, 240_050, 240_000])
   func formatsLatinDigits(cents: Int) {
     let arabic = Locale(identifier: "ar_SA")
-    let text = BudgetDraft.text(fromCents: cents, locale: arabic)
+    let text = BudgetDraft.text(fromCents: cents)
     #expect(text.allSatisfy { "$,.0123456789".contains($0) })
     #expect(BudgetDraft.parseAmount(text, locale: arabic) == .cents(cents))
   }
@@ -123,7 +162,7 @@ struct BudgetDraftTests {
   func displayTextRoundTrips(identifier: String) {
     let locale = Locale(identifier: identifier)
     for cents in [0, 7, 4_550, 240_000, 123_456_789] {
-      let text = BudgetDraft.text(fromCents: cents, locale: locale)
+      let text = BudgetDraft.text(fromCents: cents)
       let displayText = BudgetDraft.displayText(for: text, locale: locale)
       #expect(BudgetDraft.parseAmount(displayText, locale: locale) == .cents(cents))
       // Formatting again doesn't change it.
