@@ -102,9 +102,7 @@ struct BudgetDraft: Equatable, Sendable {
     if let incomeCents = budget.incomeCents {
       incomeText = Self.text(fromCents: incomeCents, locale: locale)
     }
-    if budget.savingsCents != 0 {
-      savingsText = Self.text(fromCents: budget.savingsCents, locale: locale)
-    }
+    savingsText = Self.text(fromCents: budget.savingsCents, locale: locale)
     let sortedBills = budget.fixedBills.sorted { lhs, rhs in
       (lhs.dueDay ?? 32, lhs.name) < (rhs.dueDay ?? 32, rhs.name)
     }
@@ -323,23 +321,24 @@ struct BudgetDraft: Equatable, Sendable {
     return .cents(cents)
   }
 
-  /// Formats non-negative cents for editing: no `$` or grouping, and no decimals for whole
-  /// dollars, e.g. `240_000` → `"2400"`, `4_550` → `"45.50"` in `en_US`.
+  /// Formats editable USD with grouping and cents only when nonzero.
+  /// Uses the parsing locale's separators and an explicit dollar sign for round trips.
   static func text(fromCents cents: Int, locale: Locale = .autoupdatingCurrent) -> String {
-    let dollars = cents / 100
-    let remainder = cents % 100
-    guard remainder != 0 else { return "\(dollars)" }
-    let separator = locale.decimalSeparator ?? "."
-    return "\(dollars)\(separator)\(remainder < 10 ? "0" : "")\(remainder)"
+    let formatter = NumberFormatter()
+    formatter.locale = locale
+    formatter.numberStyle = .decimal
+    formatter.usesGroupingSeparator = true
+    formatter.minimumFractionDigits = cents % 100 == 0 ? 0 : 2
+    formatter.maximumFractionDigits = 2
+    let dollars = NSDecimalNumber(decimal: Money.dollars(fromCents: cents))
+    let number = formatter.string(from: dollars) ?? dollars.stringValue
+    return "$\(number)"
   }
 
-  /// Reformats a valid typed amount as currency for display, e.g. `"2400"` → `"$2,400.00"` in
-  /// `en_US`. Empty or invalid text is returned unchanged, and so is any amount whose currency
-  /// format wouldn't parse back to the same cents (e.g. a locale that writes `US$`).
+  /// Reformats valid input as editable USD. Empty or invalid text is returned unchanged.
   static func displayText(for text: String, locale: Locale = .autoupdatingCurrent) -> String {
     guard case .cents(let cents) = parseAmount(text, locale: locale) else { return text }
-    let formatted = Money.format(cents: cents, locale: locale)
-    return parseAmount(formatted, locale: locale) == .cents(cents) ? formatted : text
+    return Self.text(fromCents: cents, locale: locale)
   }
 
   private func parse(_ text: String) -> ParsedAmount {

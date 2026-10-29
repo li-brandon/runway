@@ -133,6 +133,16 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=''
 
+      - name: Build Release for simulator
+        run: |
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Screenshots
         run: |
           set -euo pipefail
@@ -159,8 +169,8 @@ jobs:
           xcrun simctl list devicetypes -j > "$TYPES_JSON"
           xcrun simctl list runtimes -j > "$RUNTIMES_JSON"
 
-          # Prints "<device type id> <runtime id> <device type name>" for the newest iOS runtime:
-          # the first supported preferred type, else the supported iPhone with the smallest screen.
+          # Prefer SE/mini on any available iOS runtime, newest first.
+          # Otherwise keep the newest-runtime fallback (including iPhone Duo).
           # Prints nothing if neither exists.
           PICK="$(python3 - "$TYPES_JSON" "$RUNTIMES_JSON" <<'PY'
           import json
@@ -205,13 +215,22 @@ jobs:
           ios = [r for r in runtimes if r.get("isAvailable", True) and runtime_version(r)]
           if not ios:
               sys.exit(0)
-          runtime = max(ios, key=runtime_version)
-          supported = {
-              t["identifier"]
-              for t in runtime.get("supportedDeviceTypes", [])
-              if t.get("identifier") in device_types
-          }
+          def supported_types(runtime):
+              return {
+                  t["identifier"]
+                  for t in runtime.get("supportedDeviceTypes", [])
+                  if t.get("identifier") in device_types
+              }
 
+          for candidate in sorted(ios, key=runtime_version, reverse=True):
+              supported = supported_types(candidate)
+              for choice in PREFERRED:
+                  if choice in supported:
+                      print(choice, candidate["identifier"], device_types[choice]["name"])
+                      sys.exit(0)
+
+          runtime = max(ios, key=runtime_version)
+          supported = supported_types(runtime)
           if not supported:
               # Some images omit supportedDeviceTypes; try every installed iPhone type instead.
               supported = set(device_types)

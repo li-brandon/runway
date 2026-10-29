@@ -47,12 +47,12 @@ struct BudgetSetupPersistenceTests {
     [
       "weekly",
       "\(calendar.date(2026, 6, 5).timeIntervalSince1970)",
-      "1500",
-      "1800",
-      "100",
+      "$1,500",
+      "$1,800",
+      "$100",
       "carryover: false",
-      "Rent 900 1",
-      "Phone 45.50 -",
+      "Rent $900 1",
+      "Phone $45.50 -",
     ]
   }
 
@@ -82,6 +82,32 @@ struct BudgetSetupPersistenceTests {
     let loaded = BudgetDraft(budget: budget, locale: locale)
     #expect(summary(loaded) == savedSummary)
     #expect(loaded.availableCents == 45_450)
+  }
+
+  @Test("Loaded formatted amounts save with identical cents", arguments: [0, 7, 1_250, 240_000])
+  func formattedAmountsRoundTrip(cents: Int) throws {
+    let container = try RunwayModelContainer.make(inMemory: true)
+    let context = ModelContext(container)
+    var original = makeDraft()
+    original.spendableText = "\(cents / 100).\(String(format: "%02d", cents % 100))"
+    original.incomeText = original.spendableText
+    original.savingsText = original.spendableText
+    original.bills = [BudgetDraft.Bill(name: "Bill", amountText: original.spendableText)]
+    let budget = try #require(original.insertBudget(into: context, calendar: calendar))
+    try context.save()
+
+    let loaded = BudgetDraft(budget: budget, locale: locale)
+    let formatted = BudgetDraft.text(fromCents: cents, locale: locale)
+    #expect(loaded.spendableText == formatted)
+    #expect(loaded.incomeText == formatted)
+    #expect(loaded.savingsText == formatted)
+    #expect(loaded.bills.first?.amountText == formatted)
+    #expect(loaded.apply(to: budget, now: calendar.date(2026, 6, 5), calendar: calendar))
+    try context.save()
+    #expect(budget.spendablePerPeriodCents == cents)
+    #expect(budget.incomeCents == cents)
+    #expect(budget.savingsCents == cents)
+    #expect(budget.fixedBills.first?.amountCents == cents)
   }
 
   @Test("Applying an edited draft updates, adds, and removes bills in place")
