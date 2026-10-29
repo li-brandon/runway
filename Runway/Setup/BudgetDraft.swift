@@ -7,7 +7,8 @@ import SwiftData
 ///
 /// Decisions:
 /// - **Amounts** are typed as text and parsed through `Decimal` into integer cents. `$`, spaces,
-///   and the locale's grouping separator are ignored; the locale's decimal separator is accepted.
+///   and grouping separators are ignored. `$` amounts use US separators; other input uses the
+///   locale's separators.
 ///   More than two decimal places is rejected rather than rounded. Amounts above
 ///   `maximumCents` are rejected so sums of cents can't overflow.
 /// - **Required:** spendable, and each bill's name and amount. Income and savings are optional
@@ -85,7 +86,7 @@ struct BudgetDraft: Equatable, Sendable {
   var savingsText = ""
   var bills: [Bill] = []
   var carryoverEnabled = true
-  /// Decimal and grouping separators for parsing and formatting the amount text.
+  /// Decimal and grouping separators for parsing amounts without a dollar sign.
   var locale: Locale
 
   /// A new budget's defaults: biweekly, carryover on, everything else empty.
@@ -281,8 +282,10 @@ struct BudgetDraft: Equatable, Sendable {
 
   /// Parses typed dollars into cents, e.g. `"$1,234.5"` → `123_450` in `en_US`.
   static func parseAmount(_ text: String, locale: Locale = .autoupdatingCurrent) -> ParsedAmount {
-    let decimalSeparator = locale.decimalSeparator ?? "."
-    let groupingSeparator = locale.groupingSeparator ?? ","
+    // Formatted USD always uses US separators, regardless of the input locale.
+    let parsingLocale = text.contains("$") ? Locale(identifier: "en_US_POSIX") : locale
+    let decimalSeparator = parsingLocale.decimalSeparator ?? "."
+    let groupingSeparator = parsingLocale.groupingSeparator ?? ","
     var normalized = text.filter { !$0.isWhitespace && $0 != "$" }
     if !groupingSeparator.isEmpty && groupingSeparator != decimalSeparator {
       normalized = normalized.replacingOccurrences(of: groupingSeparator, with: "")
@@ -322,10 +325,13 @@ struct BudgetDraft: Equatable, Sendable {
   }
 
   /// Formats editable USD with grouping and cents only when nonzero.
-  /// Uses the parsing locale's separators and an explicit dollar sign for round trips.
-  static func text(fromCents cents: Int, locale: Locale = .autoupdatingCurrent) -> String {
+  /// Uses Latin digits and US separators with an explicit dollar sign for round trips.
+  static func text(
+    fromCents cents: Int,
+    locale _: Locale = .init(identifier: "en_US_POSIX")
+  ) -> String {
     let formatter = NumberFormatter()
-    formatter.locale = locale
+    formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.numberStyle = .decimal
     formatter.usesGroupingSeparator = true
     formatter.minimumFractionDigits = cents % 100 == 0 ? 0 : 2

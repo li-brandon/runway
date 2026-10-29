@@ -42,9 +42,12 @@ struct BudgetDraftTests {
     arguments: zip(
       [
         "12.34", "$1,234.5", "$2,400.50", "2400.50", " 7 ", ".5", "5.", "0", "0.07",
-        "10000000", "$ 2,400.00",
+        "10000000", "$ 2,400.00", "2400.5", "$2,400",
       ],
-      [1_234, 123_450, 240_050, 240_050, 700, 50, 500, 0, 7, 1_000_000_000, 240_000]
+      [
+        1_234, 123_450, 240_050, 240_050, 700, 50, 500, 0, 7, 1_000_000_000, 240_000,
+        240_050, 240_000,
+      ]
     )
   )
   func parsesCents(text: String, cents: Int) {
@@ -79,7 +82,7 @@ struct BudgetDraftTests {
     let german = Locale(identifier: "de_DE")
     #expect(BudgetDraft.parseAmount("1.234,56", locale: german) == .cents(123_456))
     #expect(BudgetDraft.parseAmount("12,5", locale: german) == .cents(1_250))
-    #expect(BudgetDraft.text(fromCents: 4_550, locale: german) == "$45,50")
+    #expect(BudgetDraft.text(fromCents: 4_550, locale: german) == "$45.50")
   }
 
   @Test(
@@ -92,6 +95,14 @@ struct BudgetDraftTests {
   func formatsText(cents: Int, text: String) {
     #expect(BudgetDraft.text(fromCents: cents, locale: locale) == text)
     #expect(BudgetDraft.parseAmount(text, locale: locale) == .cents(cents))
+  }
+
+  @Test("Arabic locale formats ASCII USD and round-trips", arguments: [0, 7, 240_050, 240_000])
+  func formatsLatinDigits(cents: Int) {
+    let arabic = Locale(identifier: "ar_SA")
+    let text = BudgetDraft.text(fromCents: cents, locale: arabic)
+    #expect(text.allSatisfy { "$,.0123456789".contains($0) })
+    #expect(BudgetDraft.parseAmount(text, locale: arabic) == .cents(cents))
   }
 
   @Test(
@@ -107,7 +118,7 @@ struct BudgetDraftTests {
 
   @Test(
     "Display text parses back to the same cents",
-    arguments: ["en_US", "de_DE", "fr_FR", "en_CA", "ja_JP", "de_CH"]
+    arguments: ["en_US", "de_DE", "fr_FR", "en_CA", "ja_JP", "de_CH", "ar_SA"]
   )
   func displayTextRoundTrips(identifier: String) {
     let locale = Locale(identifier: identifier)
