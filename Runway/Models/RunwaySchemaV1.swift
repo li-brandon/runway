@@ -84,6 +84,7 @@ extension RunwaySchemaV1 {
     var note: String = ""
     var date: Date = Date.now
 
+    /// Optional for SwiftData; app creation uses CategoryService to always assign a category.
     @Relationship(deleteRule: .nullify)
     var category: Category?
 
@@ -118,15 +119,24 @@ extension RunwaySchemaV1 {
     /// `#RRGGBB` hex string.
     var colorHex: String = "#8E8E93"
     var sortOrder: Int = 0
+    /// Only Other is a system category. Also records that defaults have already been seeded.
+    var isSystem: Bool = false
 
     @Relationship(deleteRule: .nullify, inverse: \Expense.category)
     var expenses: [Expense] = []
 
-    init(name: String, symbol: String, colorHex: String, sortOrder: Int = 0) {
+    init(
+      name: String,
+      symbol: String,
+      colorHex: String,
+      sortOrder: Int = 0,
+      isSystem: Bool = false
+    ) {
       self.name = name
       self.symbol = symbol
       self.colorHex = colorHex
       self.sortOrder = sortOrder
+      self.isSystem = isSystem
     }
   }
 }

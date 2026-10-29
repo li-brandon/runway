@@ -12,6 +12,8 @@ struct RunwayApp: App {
     launchOptions = options
     do {
       let container = try RunwayModelContainer.make(inMemory: options.usesInMemoryStore)
+      try CategoryService(context: container.mainContext).seed()
+      try container.mainContext.save()
       if let scenario = options.screenshotScenario {
         try scenario.seed(into: container.mainContext, now: .now, calendar: .current)
       }
@@ -23,7 +25,7 @@ struct RunwayApp: App {
 
   var body: some Scene {
     WindowGroup {
-      RootView(opensSetupOnLaunch: launchOptions.screenshotScenario != nil)
+      RootView(screenshotScenario: launchOptions.screenshotScenario)
     }
     .modelContainer(modelContainer)
   }

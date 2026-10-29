@@ -138,7 +138,7 @@ jobs:
           set -euo pipefail
           APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/Runway.app"
           BUNDLE_ID=com.librandon.runway
-          SCENARIOS="setup-empty setup-filled setup-warning"
+          SCENARIOS="setup-empty setup-filled setup-warning categories category-picker"
           mkdir -p screenshots
 
           # Screenshots run on a dedicated narrow (375pt) iPhone so layout problems show up.
@@ -272,8 +272,12 @@ jobs:
           xcrun simctl ui "$SHOT_UDID" content_size accessibility-extra-extra-extra-large
           for SCENARIO in $SCENARIOS; do
             capture "$SCENARIO" "screenshots/430-$SCENARIO-ax5.png"
-            capture "$SCENARIO" "screenshots/430-$SCENARIO-ax5-amounts.png" \
-              -RunwayScreenshotScrollTo spendable
+            case "$SCENARIO" in
+              setup-*)
+                capture "$SCENARIO" "screenshots/430-$SCENARIO-ax5-amounts.png" \
+                  -RunwayScreenshotScrollTo spendable
+                ;;
+            esac
           done
 
           xcrun simctl ui "$SHOT_UDID" content_size large

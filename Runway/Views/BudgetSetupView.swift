@@ -28,6 +28,12 @@ struct BudgetSetupView: View {
     ScrollViewReader { proxy in
       Form {
         Section {
+          NavigationLink("Categories") {
+            CategoriesView()
+          }
+        }
+
+        Section {
           LabeledContent("Available this period") {
             Text(draft.availableCents.map { Money.format(cents: $0) } ?? "—")
               .fontWeight(.semibold)

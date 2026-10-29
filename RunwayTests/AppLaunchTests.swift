@@ -76,6 +76,8 @@ struct AppLaunchTests {
         "setup-empty",
         "setup-filled",
         "setup-warning",
+        "categories",
+        "category-picker",
       ]
     )
   }
@@ -97,5 +99,29 @@ struct AppLaunchTests {
       }
     }
     #expect(available == [.setupFilled: 99_500, .setupWarning: -25_000])
+  }
+
+  @Test("Category screenshot scenarios seed persisted categories and distinct recent usage")
+  func categoryScenarioSeeds() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    for scenario in [ScreenshotScenario.categories, .categoryPicker] {
+      let container = try RunwayModelContainer.make(inMemory: true)
+      let context = ModelContext(container)
+      try scenario.seed(into: context, now: now, calendar: calendar)
+      let loaded = ModelContext(container)
+      let categories = try CategoryService(context: loaded).categories()
+      #expect(categories.map(\.name) == CategoryService.defaultNames)
+      let expenses = try loaded.fetch(
+        FetchDescriptor<Expense>(sortBy: [SortDescriptor(\.date, order: .reverse)])
+      )
+      if scenario == .categoryPicker {
+        #expect(
+          expenses.map { $0.category?.name } == ["Shopping", "Groceries", "Transport", "Shopping"]
+        )
+        #expect(expenses.allSatisfy { $0.category != nil && $0.date < now })
+      } else {
+        #expect(expenses.isEmpty)
+      }
+    }
   }
 }

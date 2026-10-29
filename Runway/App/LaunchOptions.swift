@@ -4,7 +4,7 @@ import SwiftData
 /// Launch arguments used by CI to take screenshots.
 ///
 /// - `-RunwayInMemoryStore` uses a fresh in-memory store instead of the on-disk one.
-/// - `-RunwayScreenshotScenario <name>` seeds the store and opens budget setup (see
+/// - `-RunwayScreenshotScenario <name>` seeds the store and opens a sample screen (see
 ///   `ScreenshotScenario`). It's ignored without `-RunwayInMemoryStore`, so sample data can never
 ///   be written to the real store.
 /// - `-RunwayScreenshotScrollTo spendable` scrolls setup to its amount fields. It is also ignored
@@ -35,7 +35,7 @@ struct LaunchOptions: Equatable, Sendable {
   }
 }
 
-/// Sample states for CI screenshots of budget setup.
+/// Sample states for CI screenshots.
 enum ScreenshotScenario: String, CaseIterable, Sendable {
   /// First launch: no budget, so setup shows its defaults.
   case setupEmpty = "setup-empty"
@@ -44,8 +44,10 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   /// A budget whose bills and savings exceed spendable, reopened from Settings.
   case setupWarning = "setup-warning"
 
-  /// Inserts and saves this scenario's budget, if it has one. Its period started three days
-  /// before `now`.
+  case categories
+  case categoryPicker = "category-picker"
+
+  /// Inserts and saves sample data. A sample budget starts three days before `now`.
   @discardableResult
   func seed(into context: ModelContext, now: Date, calendar: Calendar) throws -> Budget? {
     let today = calendar.startOfDay(for: now)
@@ -54,6 +56,22 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     let bills: [FixedBill]
     switch self {
     case .setupEmpty:
+      return nil
+    case .categories, .categoryPicker:
+      let service = CategoryService(context: context)
+      try service.seed()
+      if self == .categoryPicker {
+        let categories = try service.categories()
+        for (index, name) in ["Shopping", "Transport", "Groceries", "Shopping"].enumerated() {
+          let category = categories.first { $0.name == name }!
+          try service.createExpense(
+            amountCents: 1_200 + index * 100,
+            date: now.addingTimeInterval(Double(index - 4) * 3_600),
+            category: category
+          )
+        }
+      }
+      try context.save()
       return nil
     case .setupFilled:
       // 2,400 - (1,100 + 45 + 60) - 200 = 995 available.
