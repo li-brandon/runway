@@ -9,3 +9,16 @@ enum AppRoute: Equatable, Sendable {
     self = hasBudget ? .main : .setup
   }
 }
+
+/// Presentation state shared by the empty-state action and its setup sheet.
+struct TodayEmptyState {
+  var showsSetup: Bool
+
+  init(opensSetup: Bool = true) {
+    showsSetup = opensSetup
+  }
+
+  mutating func openSetup() {
+    showsSetup = true
+  }
+}

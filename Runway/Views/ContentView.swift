@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
   let budget: Budget
@@ -127,6 +128,16 @@ struct ContentView: View {
       .onChange(of: scenePhase) { _, phase in
         if phase == .active { now = .now }
       }
+      .onReceive(
+        NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
+      ) { _ in
+        now = .now
+      }
+      .onReceive(
+        NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)
+      ) { _ in
+        now = .now
+      }
       .task(id: now) {
         guard screenshotScenario?.todayDate == nil else { return }
         let midnight = nextMidnight(after: now, calendar: .current)
@@ -199,7 +210,7 @@ struct ContentView: View {
   private var statusColor: Color {
     switch status {
     case .normal: .primary
-    case .nearLimit: .orange
+    case .nearLimit, .noAllowance: .orange
     case .over: .red
     }
   }

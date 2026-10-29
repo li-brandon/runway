@@ -15,12 +15,12 @@ struct TodayTests {
       (100, 19, .nearLimit),
       (100, 0, .nearLimit),
       (100, -1, .over),
-      (0, 0, .normal),
+      (0, 0, .noAllowance),
       (0, -1, .over),
-      (0, 1, .normal),
+      (0, 1, .noAllowance),
       (-100, -100, .over),
-      (-100, 0, .normal),
-      (-100, 1, .normal),
+      (-100, 0, .noAllowance),
+      (-100, 1, .noAllowance),
       (1, 0, .nearLimit),
       (Int.max, Int.max, .normal),
     ]
@@ -80,6 +80,29 @@ struct TodayTests {
       #expect(expenses.contains { $0.amountCents == -500 })
       #expect(expenses.allSatisfy { $0.category != nil })
     }
+  }
+
+  @Test("Zero allowance screenshots show no allowance left with nothing spent")
+  func zeroAllowanceScreenshot() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    let container = try RunwayModelContainer.make(inMemory: true)
+    let context = ModelContext(container)
+    let budget = try #require(
+      try ScreenshotScenario.todayZero.seed(into: context, now: now, calendar: calendar)
+    )
+    let expenses = try context.fetch(FetchDescriptor<Expense>())
+    let result = AllowanceEngine(calendar: calendar).currentAllowance(
+      budget: BudgetSnapshot(budget),
+      expenses: expenses.map { ExpenseSnapshot($0) },
+      now: now
+    )
+    #expect(expenses.isEmpty)
+    #expect(result.allowanceTodayCents == 0)
+    #expect(result.spentTodayCents == 0)
+    #expect(result.remainingTodayCents == 0)
+    #expect(TodayStatus(result) == .noAllowance)
+    #expect(TodayStatus(result).title == "No allowance left")
+    #expect(TodayStatus(result).symbol != TodayStatus.normal.symbol)
   }
 
   @Test("Today excludes adjacent days and orders by spending date then logging time")
