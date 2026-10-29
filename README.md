@@ -7,7 +7,7 @@ expenses as you go. Runway shows how much of the period's "runway" you have left
 US dollars.
 
 > **Status:** early. The data model, persistence, money helpers, allowance engine, budget setup,
-> and CI are in place. The main screen is still a placeholder.
+> categories, and CI are in place. The main screen is still a placeholder.
 
 ## Budget setup
 
@@ -38,6 +38,33 @@ only binds to it. Changing the period length or payday goes through `Budget.upda
 moves a pending carryover change to the new next boundary, or drops it if it no longer changes
 anything.
 
+## Categories
+
+Open the gear button, then **Categories** in the Budget screen. Categories are also available
+before saving your first budget. Tap a category to rename it or choose a color and SF Symbol from
+the fixed options. Use **+** to add one, **Edit** to reorder, and swipe left to delete.
+Names are trimmed and must be nonempty and unique, ignoring case.
+
+The app seeds Food, Groceries, Transport, Shopping, Entertainment, Bills, and Other on first
+launch. Each has a symbol, `colorHex`, and saved `sortOrder`. Other has a stable `isSystem` marker
+in the unshipped V1 schema. It cannot be deleted or renamed, but its color and symbol can change.
+Its presence records that seeding has finished, so relaunching preserves edits and deleted defaults.
+
+Deletion asks for confirmation and shows the expense count. Confirming moves those expenses to
+Other before deleting the category; both changes save together. Expenses retain their amounts,
+notes, and dates.
+
+`CategoryService` owns validation, seeding, editing, moving, deletion, and expense creation.
+App code must create expenses through `createExpense`, which assigns Other when no category is
+provided. The model relationship remains optional for SwiftData; raw model insertion is reserved
+for persistence tests. Startup assigns Other to any old uncategorized expenses. Service methods
+stage changes in their context; callers save on success and roll back on a save failure.
+
+`CategoryPicker` is reusable by the future quick logging screen (LIB-432). It returns a saved
+category through `onSelect`. `CategoryOrdering` puts the three distinct categories with the most
+recent expense dates first, then the rest in saved order. Equal dates keep saved order. The picker
+uses all recorded expense dates, including future dates. Quick logging itself is not implemented.
+
 ## Launch arguments
 
 Used for CI screenshots. You can also set them in Xcode under **Edit Scheme › Run › Arguments**.
@@ -45,10 +72,12 @@ Used for CI screenshots. You can also set them in Xcode under **Edit Scheme › 
 | Argument | Effect |
 | --- | --- |
 | `-RunwayInMemoryStore` | Uses a fresh in-memory store instead of the on-disk one. |
-| `-RunwayScreenshotScenario <name>` | Seeds sample data and opens budget setup. Ignored without `-RunwayInMemoryStore`, so sample data never reaches your real store. |
+| `-RunwayScreenshotScenario <name>` | Seeds sample data and opens the scenario screen. Ignored without `-RunwayInMemoryStore`, so sample data never reaches your real store. |
 
 Scenarios: `setup-empty` (first launch, defaults), `setup-filled` (a budget with money available,
-reopened from Settings), and `setup-warning` (bills and savings exceed spendable).
+reopened from Settings), `setup-warning` (bills and savings exceed spendable),
+`categories` (seeded category settings), and `category-picker` (a sheet with Shopping, Groceries,
+and Transport first based on sample expenses).
 
 ```sh
 xcrun simctl launch booted com.librandon.runway \
@@ -95,6 +124,7 @@ xcodebuild test \
 | `Runway/Persistence` | Model container setup and migration plan |
 | `Runway/Money` | Cents ↔ dollars conversion and USD formatting |
 | `Runway/Engine` | Daily allowance engine and its mapping from the models |
+| `Runway/Categories` | Category persistence service and pure picker ordering |
 | `Runway/Setup` | `BudgetDraft`: budget setup parsing, validation, and saving |
 | `Runway/Views` | SwiftUI views |
 | `RunwayTests` | Unit tests (Swift Testing) |
@@ -130,7 +160,8 @@ macOS runner. It:
 5. If the tests pass, installs the built app on the same simulator with the status bar clock set
    to 9:41, launches each screenshot scenario (see [Launch arguments](#launch-arguments)), and
    uploads `screenshots/430-<scenario>.png` as the `screenshots` artifact. A failed capture fails
-   the job.
+   the job. Every scenario is captured at default and largest accessibility text sizes. Setup
+   scenarios also get a second accessibility capture scrolled to the amount fields.
 6. Uploads the `.xcresult` bundles as an artifact if any step fails.
 
 A newer push to the same pull request cancels the older run. Runs on `main` are never cancelled.

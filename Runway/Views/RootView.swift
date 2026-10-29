@@ -5,17 +5,23 @@ import SwiftUI
 struct RootView: View {
   @Query(sort: \Budget.periodStart) private var budgets: [Budget]
 
-  /// Opens setup over the main screen on launch. Used for CI screenshots.
-  let opensSetupOnLaunch: Bool
+  /// Opens the requested sample screen on launch. Used for CI screenshots.
+  let screenshotScenario: ScreenshotScenario?
 
   // Explicit because the private `@Query` makes the memberwise initializer private.
-  init(opensSetupOnLaunch: Bool = false) {
-    self.opensSetupOnLaunch = opensSetupOnLaunch
+  init(screenshotScenario: ScreenshotScenario? = nil) {
+    self.screenshotScenario = screenshotScenario
   }
 
   var body: some View {
-    if AppRoute(hasBudget: !budgets.isEmpty) == .main, let budget = budgets.first {
-      ContentView(budget: budget, showsSetup: opensSetupOnLaunch)
+    if screenshotScenario == .categories {
+      NavigationStack {
+        CategoriesView()
+      }
+    } else if screenshotScenario == .categoryPicker {
+      CategoryPickerHost()
+    } else if AppRoute(hasBudget: !budgets.isEmpty) == .main, let budget = budgets.first {
+      ContentView(budget: budget, showsSetup: screenshotScenario != nil)
     } else {
       NavigationStack {
         BudgetSetupView(budget: nil)
