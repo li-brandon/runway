@@ -29,59 +29,85 @@ struct ContentView: View {
 
   var body: some View {
     NavigationStack {
-      List {
-        Text(Date.now, format: .dateTime.weekday(.wide).month(.wide).day())
-          .font(.headline)
-          .foregroundStyle(.secondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-
-        VStack(alignment: .leading, spacing: 12) {
-          Text("Remaining today")
-            .font(.headline)
-          Text(Money.format(cents: allowance.remainingTodayCents))
-            .font(.largeTitle.bold())
-            .accessibilityLabel("Remaining today")
-            .accessibilityValue(Money.format(cents: allowance.remainingTodayCents))
-          Button {
-            showsQuickLog = true
-          } label: {
-            Label("Log Expense", systemImage: "plus")
-              .frame(maxWidth: .infinity, minHeight: 44)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+          VStack(alignment: .leading, spacing: 12) {
+            Text("Remaining today")
+              .font(.headline)
+            Text(Money.format(cents: allowance.remainingTodayCents))
+              .font(.largeTitle.bold())
+              .accessibilityLabel("Remaining today")
+              .accessibilityValue(Money.format(cents: allowance.remainingTodayCents))
+            Text(Date.now, format: .dateTime.weekday(.wide).month(.wide).day())
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+            Button {
+              showsQuickLog = true
+            } label: {
+              Label("Log Expense", systemImage: "plus")
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .multilineTextAlignment(.center)
+            }
+            .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .accessibilityHint("Opens the expense amount keypad.")
           }
-          .buttonStyle(.borderedProminent)
-          .frame(maxWidth: .infinity, minHeight: 44)
-          .accessibilityHint("Opens the expense amount keypad.")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-
-        if expenses.isEmpty {
-          ContentUnavailableView(
-            "Nothing Logged Yet",
-            systemImage: "dollarsign.circle",
-            description: Text("Expenses you log will show up here.")
+          .padding()
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(
+            Color(.secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 16)
           )
-        } else {
-          ForEach(expenses) { expense in
-            if dynamicTypeSize.isAccessibilitySize {
-              VStack(alignment: .leading, spacing: 8) {
-                Text(expense.note.isEmpty ? "Expense" : expense.note)
-                Text(Money.format(cents: expense.amountCents))
-              }
+
+          VStack(alignment: .leading, spacing: 12) {
+            Text("Today")
+              .font(.headline)
+            if expenses.isEmpty {
+              ContentUnavailableView(
+                "Nothing Logged Yet",
+                systemImage: "dollarsign.circle",
+                description: Text("Expenses you log will show up here.")
+              )
             } else {
-              LabeledContent(
-                expense.note.isEmpty ? "Expense" : expense.note,
-                value: Money.format(cents: expense.amountCents)
+              VStack(alignment: .leading, spacing: 12) {
+                ForEach(expenses) { expense in
+                  if expense.id != expenses.first?.id {
+                    Divider()
+                  }
+                  if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                      Text(expense.note.isEmpty ? "Expense" : expense.note)
+                      Text(Money.format(cents: expense.amountCents))
+                    }
+                  } else {
+                    LabeledContent(
+                      expense.note.isEmpty ? "Expense" : expense.note,
+                      value: Money.format(cents: expense.amountCents)
+                    )
+                  }
+                }
+              }
+              .padding()
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .background(
+                Color(.secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 16)
               )
             }
           }
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical)
       }
+      .background(Color(.systemGroupedBackground))
       .safeAreaInset(edge: .bottom) {
         if let undo {
           undoBanner(undo)
         }
       }
       .navigationTitle("Runway")
+      .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
           Button("Settings", systemImage: "gearshape") {
