@@ -200,6 +200,14 @@ jobs:
               if t.get("identifier") in device_types
           }
 
+          if not supported:
+              # Some images omit supportedDeviceTypes; try every installed iPhone type instead.
+              supported = set(device_types)
+          for t in sorted(supported):
+              if device_types[t].get("name", "").startswith("iPhone"):
+                  print("candidate:", device_types[t]["name"], screen_points(t), file=sys.stderr)
+          print("runtime:", runtime["identifier"], file=sys.stderr)
+
           choice = next((t for t in PREFERRED if t in supported), None)
           if choice is None:
               iphones = [
