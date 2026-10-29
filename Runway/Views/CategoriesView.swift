@@ -197,8 +197,8 @@ struct CategoryLabel: View {
 
 enum CategoryAppearance {
   static func color(_ hex: String) -> Color {
-    let value = UInt32(hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")), radix: 16)
-      ?? 0x8E8E93
+    let digits = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+    let value = UInt32(digits, radix: 16) ?? 0x8E8E93
     return Color(
       .sRGB,
       red: Double((value >> 16) & 0xFF) / 255,
