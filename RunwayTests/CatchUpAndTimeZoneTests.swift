@@ -26,6 +26,24 @@ struct DSTMove: Sendable, CustomTestStringConvertible {
   ]
 }
 
+/// Period totals around a time zone move, compared before and after with each zone's own calendar.
+/// `money`, `extraNotes`, and `billStatus` leave expenses out and must match exactly, because they
+/// only depend on day-only dates, which keep their calendar days. Expenses keep their instants, so
+/// a move can legitimately shift them to another local day: out of the budget's first period, or
+/// out of the budget entirely if that's before its first day. So `spentCents` and `remainingCents`
+/// are compared with where each expense's instant lands instead of being expected to stay equal.
+struct RedatingTotals {
+  /// Extra money, allowance, Today's remaining, and History's remaining per period (newest first),
+  /// at noon on the rows' day and at noon a week later.
+  let money: [Int]
+  let extraNotes: [String]
+  let billStatus: BillStatus
+  /// History's spending per period a week after the rows' day, newest first.
+  let spentCents: [Int]
+  /// The newest period's remainder a week after the rows' day, with everything spent so far.
+  let remainingCents: Int
+}
+
 /// Opening the app after days or periods away, and moving between time zones. Weekly $700
 /// budgets anchored Monday 2026-06-01.
 struct CatchUpAndTimeZoneTests {
@@ -58,14 +76,15 @@ struct CatchUpAndTimeZoneTests {
     return budget
   }
 
-  /// A budget in `calendar`'s time zone with extra money and a bill mark stored at exactly `date`.
-  /// Built directly because `addExtraMoney` and `setStatus` now store local midnight, while older
-  /// rows can hold any time of day.
+  /// A budget in `calendar`'s time zone with extra money and a skipped bill's mark stored at
+  /// exactly `date`, the first day of its first period. $400 available a week: $700 minus a $300
+  /// bill. Built directly because `addExtraMoney` and `setStatus` now store local midnight, while
+  /// older rows can hold any time of day.
   func legacyRows(
     at date: Date,
     in calendar: Calendar,
     context: ModelContext
-  ) throws -> (budget: Budget, extra: ExtraMoney, mark: BillPayment) {
+  ) throws -> (budget: Budget, extra: ExtraMoney, mark: BillPayment, bill: FixedBill) {
     let budget = Budget(
       periodLength: .weekly,
       periodStart: calendar.startOfDay(for: date),
@@ -73,6 +92,9 @@ struct CatchUpAndTimeZoneTests {
       timeZoneIdentifier: calendar.timeZone.identifier
     )
     context.insert(budget)
+    let bill = FixedBill(name: "Rent", amountCents: 30_000, dueDay: 1)
+    context.insert(bill)
+    budget.fixedBills.append(bill)
     let extra = ExtraMoney(amountCents: 15_000, note: "Gift", date: date)
     context.insert(extra)
     budget.extraMoney.append(extra)
@@ -86,8 +108,117 @@ struct CatchUpAndTimeZoneTests {
     )
     context.insert(mark)
     budget.billPayments.append(mark)
+    mark.bill = bill
     try context.save()
-    return (budget, extra, mark)
+    return (budget, extra, mark, bill)
+  }
+
+  /// $10 at 12:30 AM and $20 at 11:30 PM on the first period's first day, and $40 at 11:30 PM on
+  /// its last day, all in `calendar`'s time zone.
+  func addExpenses(
+    month: Int,
+    day: Int,
+    in calendar: Calendar,
+    context: ModelContext
+  ) throws -> [Expense] {
+    let service = CategoryService(context: context)
+    let dates = [
+      calendar.date(2026, month, day, 0, 30),
+      calendar.date(2026, month, day, 23, 30),
+      calendar.date(2026, month, day + 6, 23, 30),
+    ]
+    let expenses = try zip([1_000, 2_000, 4_000], dates).map { cents, date in
+      try service.createExpense(amountCents: cents, date: date)
+    }
+    try context.save()
+    return expenses
+  }
+
+  /// The totals for a budget whose first period starts on the given day, at the same wall-clock
+  /// times in any zone.
+  func totals(
+    of budget: Budget,
+    bill: FixedBill,
+    expenses: [Expense],
+    month: Int,
+    day: Int,
+    calendar: Calendar
+  ) -> RedatingTotals {
+    let snapshot = BudgetSnapshot(budget)
+    let engine = AllowanceEngine(calendar: calendar)
+    let history = HistoryEngine(calendar: calendar)
+    let times = [calendar.date(2026, month, day, 12), calendar.date(2026, month, day + 7, 12)]
+    let money = times.flatMap { now -> [Int] in
+      let result = engine.currentAllowance(budget: snapshot, expenses: [], now: now)
+      let periods = history.periods(
+        budget: snapshot,
+        expenses: [HistoryExpense<String>](),
+        now: now
+      )
+      return [result.extraCents, result.allowanceTodayCents, result.remainingPeriodCents]
+        + periods.map(\.remainingCents)
+    }
+    let periods = history.periods(
+      budget: snapshot,
+      expenses: expenses.map { historyExpense($0.amountCents, $0.date) },
+      now: times[1]
+    )
+    let first = engine.period(at: 0, of: snapshot)
+    return RedatingTotals(
+      money: money,
+      extraNotes: budget.extraMoneyItems(in: first).map(\.note),
+      billStatus: budget.status(of: bill, in: first),
+      spentCents: periods.map(\.spentCents),
+      remainingCents: periods[0].remainingCents
+    )
+  }
+
+  /// Adopts `target`'s time zone and checks the totals (see `RedatingTotals`) and that expenses
+  /// keep their exact instants. `leftBudgetCents` is the spending the move puts before the
+  /// budget's first day, and `nextPeriodCents` what it puts in the second period.
+  func adoptAndExpectTotalsKept(
+    budget: Budget,
+    bill: FixedBill,
+    expenses: [Expense],
+    month: Int,
+    day: Int,
+    from source: Calendar,
+    to target: Calendar,
+    leftBudgetCents: Int,
+    nextPeriodCents: Int,
+    context: ModelContext
+  ) throws {
+    func figures(_ calendar: Calendar) -> RedatingTotals {
+      totals(
+        of: budget,
+        bill: bill,
+        expenses: expenses,
+        month: month,
+        day: day,
+        calendar: calendar
+      )
+    }
+    let instants = expenses.map(\.date)
+    let before = figures(source)
+    // First day: $400 + $450 extra over 7 days. A week later: $400 + $850 carried in, over 7 days.
+    let expectedMoney = [45_000, 12_142, 85_000, 85_000, 0, 17_857, 125_000, 125_000, 85_000]
+    #expect(before.money == expectedMoney)
+    #expect(before.extraNotes == ["Gift"])
+    #expect(before.billStatus == .skipped)
+    #expect(before.spentCents == [0, 7_000])
+    #expect(before.remainingCents == 118_000)
+
+    #expect(budget.adoptTimeZone(of: target))
+    try context.save()
+
+    #expect(expenses.map(\.date) == instants)
+    let after = figures(target)
+    #expect(after.money == before.money)
+    #expect(after.extraNotes == before.extraNotes)
+    #expect(after.billStatus == before.billStatus)
+    #expect(after.spentCents == [nextPeriodCents, 7_000 - leftBudgetCents - nextPeriodCents])
+    // Moving between periods carries over; only spending that left the budget changes the total.
+    #expect(after.remainingCents == before.remainingCents + leftBudgetCents)
   }
 
   // MARK: - Catching up
@@ -336,14 +467,26 @@ struct CatchUpAndTimeZoneTests {
     let honolulu = Calendar.gregorian("Pacific/Honolulu")
     let target = Calendar.gregorian(destination)
     let context = ModelContext(container)
-    // 11:30 PM on Jun 7 in Honolulu is already Jun 8 in both destinations.
+    // With hour 23, 11:30 PM on Jun 7 in Honolulu is already Jun 8 in both destinations.
     let saved = honolulu.date(2026, 6, 7, hour, 30)
     let rows = try legacyRows(at: saved, in: honolulu, context: context)
+    let expenses = try addExpenses(month: 6, day: 7, in: honolulu, context: context)
     #expect(rows.extra.date == saved)
     #expect(rows.mark.date == saved)
 
-    #expect(rows.budget.adoptTimeZone(of: target))
-    try context.save()
+    // Both destinations are east of Honolulu, so 11:30 PM on the last day reaches the next period.
+    try adoptAndExpectTotalsKept(
+      budget: rows.budget,
+      bill: rows.bill,
+      expenses: expenses,
+      month: 6,
+      day: 7,
+      from: honolulu,
+      to: target,
+      leftBudgetCents: 0,
+      nextPeriodCents: 4_000,
+      context: context
+    )
 
     #expect(rows.budget.timeZoneIdentifier == destination)
     #expect(rows.extra.date == target.date(2026, 6, 7))
@@ -362,9 +505,28 @@ struct CatchUpAndTimeZoneTests {
     // 12:30, 3:30, and 11:30 are neither skipped nor repeated on either day.
     let saved = source.date(2026, move.month, move.day, hour, 30)
     let rows = try legacyRows(at: saved, in: source, context: context)
+    let expenses = try addExpenses(
+      month: move.month,
+      day: move.day,
+      in: source,
+      context: context
+    )
 
-    #expect(rows.budget.adoptTimeZone(of: target))
-    try context.save()
+    // West from UTC, 12:30 AM on the first day falls before the budget's new first day, and 11:30
+    // PM on the last day stays in its period. East, it's the other way around.
+    let isWest = move.from == "UTC"
+    try adoptAndExpectTotalsKept(
+      budget: rows.budget,
+      bill: rows.bill,
+      expenses: expenses,
+      month: move.month,
+      day: move.day,
+      from: source,
+      to: target,
+      leftBudgetCents: isWest ? 1_000 : 0,
+      nextPeriodCents: isWest ? 0 : 4_000,
+      context: context
+    )
 
     let midnight = target.date(2026, move.month, move.day)
     let utc = Calendar.gregorian("UTC")
@@ -386,9 +548,21 @@ struct CatchUpAndTimeZoneTests {
     #expect(chicago.component(.hour, from: saved) == 1)
     #expect(chicago.component(.minute, from: saved) == 30)
     let rows = try legacyRows(at: saved, in: chicago, context: context)
+    let expenses = try addExpenses(month: 11, day: 1, in: chicago, context: context)
 
-    #expect(rows.budget.adoptTimeZone(of: london))
-    try context.save()
+    // London is east of Chicago, so 11:30 PM on the last day reaches the next period.
+    try adoptAndExpectTotalsKept(
+      budget: rows.budget,
+      bill: rows.bill,
+      expenses: expenses,
+      month: 11,
+      day: 1,
+      from: chicago,
+      to: london,
+      leftBudgetCents: 0,
+      nextPeriodCents: 4_000,
+      context: context
+    )
 
     #expect(rows.extra.date == london.date(2026, 11, 1))
     #expect(rows.mark.date == london.date(2026, 11, 1))
