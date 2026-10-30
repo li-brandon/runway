@@ -84,6 +84,8 @@ struct AppLaunchTests {
   func screenshotScrollOptions() {
     let arguments = ["Runway", "-RunwayInMemoryStore", "-RunwayScreenshotScrollTo"]
     #expect(LaunchOptions(arguments: arguments + ["spendable"]).screenshotScrollTo == "spendable")
+    let categories = LaunchOptions(arguments: arguments + ["categories"])
+    #expect(categories.screenshotScrollTo == "categories")
     #expect(LaunchOptions(arguments: arguments + ["unknown"]).screenshotScrollTo == nil)
     #expect(LaunchOptions(arguments: arguments).screenshotScrollTo == nil)
     #expect(LaunchOptions(arguments: ["Runway"]).screenshotScrollTo == nil)
@@ -109,6 +111,9 @@ struct AppLaunchTests {
         "today-over",
         "today-zero",
         "today-no-budget",
+        "history-list",
+        "history-period-summary",
+        "history-edit",
       ]
     )
   }
@@ -123,7 +128,8 @@ struct AppLaunchTests {
       let budget = try scenario.seed(into: context, now: now, calendar: calendar)
       #expect(try context.fetchCount(FetchDescriptor<Budget>()) == (budget == nil ? 0 : 1))
       if let budget {
-        #expect(budget.periodStart == calendar.date(2026, 6, 7))
+        let start = scenario.isHistory ? calendar.date(2026, 5, 24) : calendar.date(2026, 6, 7)
+        #expect(budget.periodStart == start)
         let draft = BudgetDraft(budget: budget, locale: Money.fixedLocale)
         #expect(draft.canSave)
         available[scenario] = draft.availableCents
@@ -141,6 +147,9 @@ struct AppLaunchTests {
         .todayNear: 110_000,
         .todayOver: 110_000,
         .todayZero: 0,
+        .historyList: 110_000,
+        .historyPeriodSummary: 110_000,
+        .historyEdit: 110_000,
       ]
     )
   }

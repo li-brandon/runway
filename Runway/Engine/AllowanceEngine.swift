@@ -220,7 +220,8 @@ struct AllowanceEngine: Sendable {
     return calendar.startOfDay(for: shifted ?? anchor)
   }
 
-  private func startOfNextDay(after dayStart: Date) -> Date {
+  /// Local midnight of the day after the day starting at `dayStart`.
+  func startOfNextDay(after dayStart: Date) -> Date {
     // `startOfDay` again in case local midnight doesn't exist on the next day.
     let next = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
     return calendar.startOfDay(for: next)
