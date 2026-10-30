@@ -346,7 +346,7 @@ jobs:
             echo "Capturing $1 → $2"
             xcrun simctl launch --terminate-running-process "$SHOT_UDID" "$BUNDLE_ID" \
               -RunwayInMemoryStore -RunwayScreenshotScenario "$1" "${@:3}"
-            sleep 6
+            sleep "${CAPTURE_WAIT:-6}"
             # Multi-display simulators (e.g. iPhone Duo) need --display; use the "(primary)" one.
             if ! xcrun simctl io "$SHOT_UDID" screenshot "$2" 2> "$RUNNER_TEMP/shot.err"; then
               cat "$RUNNER_TEMP/shot.err"
@@ -376,7 +376,9 @@ jobs:
                   -RunwayScreenshotScrollTo categories
                 ;;
               history-before-budget)
-                capture "$SCENARIO" "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO-ax5-before-budget.png" \
+                # Scrolls twice so the footer settles; give it longer than the default wait.
+                CAPTURE_WAIT=10 capture "$SCENARIO" \
+                  "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO-ax5-before-budget.png" \
                   -RunwayScreenshotScrollTo before-budget
                 ;;
               today-normal|today-over)
