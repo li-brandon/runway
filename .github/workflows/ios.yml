@@ -2,12 +2,14 @@ name: iOS
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # One run per PR (or per ref on push); a newer push cancels the older PR run.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -23,8 +25,54 @@ env:
   XCODE_VERSION: '27'
 
 jobs:
+  # Cheap Linux job: decides whether the macOS job needs to run at all.
+  # Draft PRs run nothing; docs-only changes (*.md, docs/**) skip the macOS build.
+  changes:
+    name: Detect changes
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - name: Diff against base
+        id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
+            || [ -z "$BASE_SHA" ] \
+            || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
+          echo "$CHANGED"
+          CODE="$(echo "$CHANGED" | grep -vE '(\.md$|^docs/)' | grep -c . || true)"
+          if [ "$CODE" -gt 0 ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Docs-only PRs: report the required "Build and test" check without a macOS runner.
+  docs-only:
+    name: Build and test
+    needs: changes
+    if: needs.changes.outputs.code == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo "Docs-only change (*.md, docs/**); skipping the iOS build."
+
   build-and-test:
     name: Build and test
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: xcode-27  # public-preview macOS 27 image with Xcode 27 and iOS simulators
     timeout-minutes: 45
 
