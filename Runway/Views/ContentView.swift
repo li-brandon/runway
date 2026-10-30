@@ -41,6 +41,27 @@ struct ContentView: View {
     _showsPeriodMoney = State(initialValue: screenshotScenario == .budgetChangeBills)
   }
 
+  /// Shrinks the amount in steps down to the scale floor on one line, and only wraps when
+  /// even the floor doesn't fit, so ordinary amounts never break mid-number.
+  private var remainingAmount: some View {
+    let text = Money.format(cents: allowance.remainingTodayCents)
+    let size = min(amountSize, 96)
+    let steps: [CGFloat] = [1, 0.85, TextScaling.minimumFactor]
+    return ViewThatFits(in: .horizontal) {
+      ForEach(steps, id: \.self) { step in
+        Text(text)
+          .font(.system(size: size * step, weight: .bold, design: .rounded))
+          .lineLimit(1)
+          .fixedSize(horizontal: true, vertical: false)
+      }
+      Text(text)
+        .font(
+          .system(size: size * TextScaling.minimumFactor, weight: .bold, design: .rounded)
+        )
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
   var body: some View {
     NavigationStack {
       ScrollViewReader { proxy in
@@ -51,9 +72,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 8) {
               Text("Left to spend today")
                 .font(.footnote)
-              Text(Money.format(cents: allowance.remainingTodayCents))
-                .font(.system(size: min(amountSize, 96), weight: .bold, design: .rounded))
-                .minimumScaleFactor(TextScaling.minimumFactor)
+              remainingAmount
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .foregroundStyle(statusColor)
                 .accessibilityLabel("Left to spend today")
