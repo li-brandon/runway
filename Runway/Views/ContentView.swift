@@ -12,6 +12,10 @@ struct ContentView: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.scenePhase) private var scenePhase
   @ScaledMetric(relativeTo: .largeTitle) private var amountSize = 80.0
+  @AppStorage(SpendingPreferences.viewKey)
+  private var spendingView = SpendingPreferences.defaultView
+  @AppStorage(SpendingPreferences.modeKey)
+  private var spendingMode = SpendingPreferences.defaultMode
   @State private var now = Date.now
 
   @Query(sort: \Expense.date, order: .reverse) private var expenses: [Expense]
@@ -41,6 +45,8 @@ struct ContentView: View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
+          spendingSummary
+
           VStack(alignment: .leading, spacing: 8) {
             Text("Left to spend today")
               .font(.footnote)
@@ -187,6 +193,10 @@ struct ContentView: View {
       }
       .task {
         adoptCurrentTimeZone()
+        if let selection = screenshotScenario?.spendingSelection {
+          spendingView = selection.view
+          spendingMode = selection.mode
+        }
         if opensQuickLog {
           showsQuickLog = true
         } else if screenshotScenario == .budgetChangeAddMoney {
@@ -224,6 +234,90 @@ struct ContentView: View {
         PeriodMoneyView(budget: budget, now: displayNow)
       }
     }
+  }
+
+  private var spendingSummary: some View {
+    let summary = SpendingSummaryEngine(calendar: .current).summary(
+      budget: BudgetSnapshot(budget),
+      expenses: expenses.map {
+        HistoryExpense(amountCents: $0.amountCents, date: $0.date, categoryID: 0)
+      },
+      view: spendingView,
+      mode: spendingMode,
+      now: displayNow
+    )
+    let comparison = spendingView.comparisonLabel(mode: spendingMode)
+    return VStack(alignment: .leading, spacing: 12) {
+      Picker("Spending period", selection: $spendingView) {
+        ForEach(SpendingView.allCases, id: \.self) { view in
+          Text(view.rawValue)
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+            .tag(view)
+        }
+      }
+      .pickerStyle(.segmented)
+      .accessibilityLabel("Spending period")
+      if spendingView != .day {
+        Picker("Period boundaries", selection: $spendingMode) {
+          ForEach(SpendingWindowMode.allCases, id: \.self) { mode in
+            Text(mode.rawValue).tag(mode)
+          }
+        }
+        .pickerStyle(.menu)
+        .accessibilityHint("Rolling uses the last 7 or 30 days, including today.")
+      }
+      Text("Spent this \(spendingView.rawValue.lowercased())")
+        .font(.headline)
+      Text(Money.format(cents: summary.spentCents))
+        .font(.largeTitle.bold())
+        .lineLimit(1)
+        .minimumScaleFactor(0.1)
+      if spendingView != .day {
+        Text("Budget for these days: \(Money.format(cents: summary.budgetCents))")
+          .font(.footnote)
+          .lineLimit(1)
+          .minimumScaleFactor(0.1)
+        let remaining = summary.budgetCents - summary.spentCents
+        let status = remaining < 0 ? "over" : "left"
+        Text("\(Money.format(cents: abs(remaining))) \(status)")
+          .font(.footnote)
+      }
+      if let change = summary.percentageChange {
+        let amount = abs(change).formatted(.number.precision(.fractionLength(0)))
+        let direction = change > 0 ? "up" : "down"
+        let symbol = change == 0 ? "arrow.right" : "arrow.\(direction)"
+        let stacked = AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+        let inline = AnyLayout(HStackLayout(spacing: 4))
+        let layout = dynamicTypeSize.isAccessibilitySize ? stacked : inline
+        layout {
+          Image(systemName: symbol)
+            .accessibilityHidden(true)
+          Text("\(amount)% vs \(comparison)")
+        }
+        .foregroundStyle(change > 0 ? Color.orange : Color.secondary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+          "Spending \(change == 0 ? "unchanged" : direction), \(amount) percent vs \(comparison)"
+        )
+      } else {
+        Text(summary.spentCents == 0 ? "No change" : "New")
+          .accessibilityLabel("Spending for \(comparison) was zero; no percentage comparison")
+      }
+      Text(summary.window.start, format: .dateTime.month(.abbreviated).day())
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      Text("Through today · compared with \(comparison)")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .fixedSize(horizontal: false, vertical: true)
+    .padding()
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      Color(.secondarySystemGroupedBackground),
+      in: RoundedRectangle(cornerRadius: 16)
+    )
   }
 
   /// Add Money and This Period, side by side or stacked at accessibility sizes. Disabled before

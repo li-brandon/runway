@@ -63,6 +63,21 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case todayZero = "today-zero"
   case todayNoBudget = "today-no-budget"
 
+  case spendingDay = "spending-day"
+  case spendingWeek = "spending-week"
+  case spendingMonth = "spending-month"
+  case spendingMonthRolling = "spending-month-rolling"
+
+  var spendingSelection: (view: SpendingView, mode: SpendingWindowMode)? {
+    switch self {
+    case .spendingDay: (.day, .calendar)
+    case .spendingWeek: (.week, .calendar)
+    case .spendingMonth: (.month, .calendar)
+    case .spendingMonthRolling: (.month, .rolling)
+    default: nil
+    }
+  }
+
   /// History of the current period, scrolled to its days.
   case historyList = "history-list"
   /// History of the previous, completed period: totals, carryover, and categories.
@@ -117,7 +132,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
 
   var todayDate: Date? {
     switch self {
-    case .todayNormal, .todayNear, .todayOver, .todayZero, .todayNoBudget:
+    case .todayNormal, .todayNear, .todayOver, .todayZero, .todayNoBudget,
+      .spendingDay, .spendingWeek, .spendingMonth, .spendingMonthRolling:
       Self.fixedToday
     case .historyList, .historyPeriodSummary, .historyEdit, .history500:
       Self.fixedToday
@@ -138,6 +154,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     let budget: Budget
     let bills: [FixedBill]
     switch self {
+    case .spendingDay, .spendingWeek, .spendingMonth, .spendingMonthRolling:
+      return try seedSpending(into: context, now: now, calendar: calendar)
     case .setupEmpty, .todayNoBudget:
       return nil
     case .categories, .categoryPicker:
@@ -234,6 +252,35 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
         date: now,
         category: categories.first { $0.name == "Shopping" },
         now: now
+      )
+    }
+    try context.save()
+    return budget
+  }
+
+  /// Seventy days cover both calendar and rolling comparisons, with a higher recent spend.
+  private func seedSpending(
+    into context: ModelContext,
+    now: Date,
+    calendar: Calendar
+  ) throws -> Budget {
+    let today = calendar.startOfDay(for: now)
+    let start = calendar.date(byAdding: .day, value: -69, to: today)!
+    let budget = Budget(
+      periodLength: .weekly,
+      periodStart: start,
+      spendablePerPeriodCents: 70_000,
+      carryoverEnabled: false
+    )
+    context.insert(budget)
+    let service = CategoryService(context: context)
+    for offset in 0..<70 {
+      let day = calendar.date(byAdding: .day, value: offset, to: start)!
+      try service.createExpense(
+        amountCents: 1_000 + offset * 50,
+        note: "Daily spending",
+        date: day,
+        now: day
       )
     }
     try context.save()
