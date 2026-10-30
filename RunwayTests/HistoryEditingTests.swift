@@ -253,6 +253,88 @@ struct HistoryEditingTests {
     #expect(restored.category?.isSystem == true)
   }
 
+  @Test("Back-to-back deletes keep the first one deleted and undo only the latest")
+  func backToBackDeletes() throws {
+    let now = calendar.date(2026, 6, 4, 12)
+    let lunchDate = calendar.date(2026, 6, 2, 12)
+    let busDate = calendar.date(2026, 6, 3, 9)
+    let coffeeDate = calendar.date(2026, 6, 3, 8)
+    let lunch = try service.createExpense(
+      amountCents: 5_000,
+      note: "Lunch",
+      date: lunchDate,
+      category: try category("Food"),
+      now: lunchDate
+    )
+    let bus = try service.createExpense(
+      amountCents: 3_000,
+      note: "Bus",
+      date: busDate,
+      category: try category("Transport"),
+      now: busDate
+    )
+    try service.createExpense(amountCents: 2_000, note: "Coffee", date: coffeeDate, now: coffeeDate)
+    try context.save()
+    let before = try history(now: now)[0]
+    #expect(before.spentCents == 10_000)
+    #expect(before.days.map(\.spentCents) == [0, 5_000, 5_000, 0])
+    #expect(before.days.map(\.allowanceCents) == [15_000, 13_000, 11_666, 10_000])
+
+    var slot = ExpenseUndoSlot()
+    try slot.delete(lunch, in: context, now: now)
+    #expect(slot.pending?.note == "Lunch")
+    let afterLunch = try history(now: now)[0]
+    #expect(afterLunch.spentCents == 5_000)
+    #expect(afterLunch.days.map(\.spentCents) == [0, 5_000, 0, 0])
+    #expect(afterLunch.days.map(\.allowanceCents) == [16_250, 14_000, 11_666, 10_000])
+
+    // The second delete replaces the first, which stays deleted in the store.
+    try slot.delete(bus, in: context, now: now.addingTimeInterval(1))
+    #expect(slot.pending?.note == "Bus")
+    let reloaded = ModelContext(container)
+    #expect(try reloaded.fetch(FetchDescriptor<Expense>()).map(\.note) == ["Coffee"])
+    let afterBus = try history(now: now)[0]
+    #expect(afterBus.spentCents == 2_000)
+    #expect(afterBus.days.map(\.spentCents) == [0, 2_000, 0, 0])
+    #expect(afterBus.days.map(\.allowanceCents) == [17_000, 14_000, 11_666, 10_000])
+    #expect(afterBus.categories.map(\.spentCents) == [2_000])
+
+    // Undo restores only the bus fare and empties the slot.
+    let restored = try #require(try slot.undo(in: context, now: now.addingTimeInterval(2)))
+    #expect(restored.note == "Bus")
+    #expect(restored.category?.name == "Transport")
+    #expect(slot.pending == nil)
+    #expect(try savedExpenses().map(\.note) == ["Coffee", "Bus"])
+    #expect(try history(now: now)[0] == afterLunch)
+
+    // Nothing is left to undo: the lunch can't come back.
+    #expect(try slot.undo(in: context, now: now.addingTimeInterval(3)) == nil)
+    let fresh = ModelContext(container)
+    #expect(try fresh.fetch(FetchDescriptor<Expense>()).map(\.note).sorted() == ["Bus", "Coffee"])
+    #expect(try history(now: now)[0] == afterLunch)
+    #expect(try today(now: now).allowanceTodayCents == 16_250)
+  }
+
+  @Test("Expiry empties the slot only for the deletion it was scheduled for")
+  func undoSlotExpiry() throws {
+    let now = calendar.date(2026, 6, 4, 12)
+    let date = calendar.date(2026, 6, 2, 12)
+    let first = try service.createExpense(amountCents: 900, date: date, now: date)
+    let second = try service.createExpense(amountCents: 400, date: date, now: date)
+    try context.save()
+
+    var slot = ExpenseUndoSlot()
+    try slot.delete(first, in: context, now: now)
+    let firstDeadline = try #require(slot.pending?.expiresAt)
+    try slot.delete(second, in: context, now: now.addingTimeInterval(2))
+    // The first deletion's timer firing late leaves the second's undo alone.
+    slot.expire(at: firstDeadline)
+    #expect(slot.pending?.amountCents == 400)
+    slot.expire(at: now.addingTimeInterval(7))
+    #expect(slot.pending == nil)
+    #expect(try savedExpenses().isEmpty)
+  }
+
   @Test("History screenshots seed two biweekly periods with carryover and some days over")
   func screenshotSeed() throws {
     let now = calendar.date(2026, 6, 10, 12)
@@ -277,5 +359,51 @@ struct HistoryEditingTests {
     #expect(periods[0].carryInCents == 31_390)
     #expect(periods[1].daysOver > 0)
     #expect(periods[1].categories.count >= 5)
+  }
+
+  /// `HistoryEngineTests.manyExpenses` times the engine on plain values; this times what
+  /// `HistoryView` computes per render from saved expenses, as the `history-500` scenario shows.
+  @Test("History-500 seeds 500 expenses in one period and History's page builds quickly")
+  func fiveHundredExpensePage() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    let seedContainer = try RunwayModelContainer.make(inMemory: true)
+    let seeded = ModelContext(seedContainer)
+    let budget = try #require(
+      try ScreenshotScenario.history500.seed(into: seeded, now: now, calendar: calendar)
+    )
+    // Sorted like HistoryView's query.
+    let expenses = try seeded.fetch(
+      FetchDescriptor<Expense>(
+        sortBy: [
+          SortDescriptor(\.date, order: .reverse),
+          SortDescriptor(\.createdAt, order: .reverse),
+        ]
+      )
+    )
+    #expect(expenses.count == 500)
+
+    var page: HistoryPage?
+    let elapsed = ContinuousClock().measure {
+      page = HistoryView.makePage(
+        budget: budget,
+        expenses: expenses,
+        periodOffset: 1,
+        now: now,
+        calendar: calendar
+      )
+    }
+    #expect(elapsed < .seconds(1))
+    let shown = try #require(page)
+    #expect(shown.periods.map(\.days.count) == [4, 14])
+    #expect(shown.periods[0].spentCents == 0)
+    #expect(shown.selected.spentCents == 1_354_120)
+    #expect(shown.expensesByDay.count == 14)
+    #expect(shown.expensesByDay.values.reduce(0) { $0 + $1.count } == 500)
+    // Each day's rows add up to its day row and stay newest first.
+    for day in shown.selected.days {
+      let rows = shown.expensesByDay[day.date] ?? []
+      #expect(rows.reduce(0) { $0 + $1.amountCents } == day.spentCents)
+      #expect(rows.map(\.date) == rows.map(\.date).sorted(by: >))
+    }
   }
 }

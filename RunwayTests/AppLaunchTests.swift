@@ -114,6 +114,7 @@ struct AppLaunchTests {
         "history-list",
         "history-period-summary",
         "history-edit",
+        "history-500",
       ]
     )
   }
@@ -150,6 +151,7 @@ struct AppLaunchTests {
         .historyList: 110_000,
         .historyPeriodSummary: 110_000,
         .historyEdit: 110_000,
+        .history500: 110_000,
       ]
     )
   }
