@@ -98,6 +98,27 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   /// This period's extra money and bills: a gift, Rent paid, and Phone skipped.
   case budgetChangeBills = "budget-change-bills"
 
+  /// Privacy & Data with the app lock on.
+  case privacySettings = "privacy-settings"
+  /// The lock screen over Today. Its authenticator never shows a system prompt.
+  case privacyLocked = "privacy-locked"
+  /// Privacy & Data with the import confirm dialog open on a backup of the sample data.
+  case privacyImportConfirm = "privacy-import-confirm"
+  /// Privacy & Data with the reset confirm dialog open.
+  case privacyResetConfirm = "privacy-reset-confirm"
+
+  var isPrivacy: Bool {
+    switch self {
+    case .privacySettings, .privacyLocked, .privacyImportConfirm, .privacyResetConfirm: true
+    default: false
+    }
+  }
+
+  /// Opens Privacy & Data directly at launch.
+  var opensPrivacyData: Bool {
+    isPrivacy && self != .privacyLocked
+  }
+
   /// Opens setup on a saved budget at launch.
   var opensBudgetSetup: Bool {
     switch self {
@@ -177,7 +198,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       return nil
     case .setupFilled, .quickLogEmpty, .quickLogFilled, .quickLogNote, .todayUndo,
       .budgetChangeAmounts, .budgetChangePeriod, .budgetChangeCarryover, .budgetChangeAddMoney,
-      .budgetChangeBills:
+      .budgetChangeBills, .privacySettings, .privacyLocked, .privacyImportConfirm,
+      .privacyResetConfirm:
       // 2,400 - (1,100 + 45 + 60) - 200 = 995 available.
       budget = Budget(
         periodStart: periodStart,
@@ -224,7 +246,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       budget.setStatus(.paid(cents: rent.amountCents), of: rent, now: now, calendar: calendar)
       budget.setStatus(.skipped, of: bills[1], now: now, calendar: calendar)
     }
-    if self == .todayUndo {
+    if self == .todayUndo || isPrivacy {
       try CategoryService(context: context).createExpense(
         amountCents: 1_250,
         note: "Lunch with Sam",

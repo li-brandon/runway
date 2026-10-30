@@ -196,6 +196,7 @@ jobs:
           SCENARIOS="$SCENARIOS history-list history-period-summary history-edit history-500"
           SCENARIOS="$SCENARIOS budget-change-amounts budget-change-period budget-change-carryover budget-change-add-money budget-change-bills"
           SCENARIOS="$SCENARIOS spending-day spending-week spending-month spending-month-rolling"
+          SCENARIOS="$SCENARIOS privacy-settings privacy-locked privacy-import-confirm privacy-reset-confirm"
           ticket_for() {
             case "$1" in
               setup-*) echo 430 ;;
@@ -207,6 +208,7 @@ jobs:
               history-500) echo 463 ;;
               budget-change-*) echo 435 ;;
               spending-*) echo 436 ;;
+              privacy-*) echo 437 ;;
               *) return 1 ;;
             esac
           }

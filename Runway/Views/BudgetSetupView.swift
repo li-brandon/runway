@@ -40,6 +40,9 @@ struct BudgetSetupView: View {
           NavigationLink("Categories") {
             CategoriesView()
           }
+          NavigationLink("Privacy & Data") {
+            PrivacyDataView()
+          }
         }
 
         Section {
