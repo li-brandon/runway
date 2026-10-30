@@ -18,6 +18,8 @@ struct ContentView: View {
   @State private var showsSetup: Bool
 
   @State private var showsQuickLog = false
+  @State private var showsAddMoney = false
+  @State private var showsPeriodMoney: Bool
   @State private var showsHistory: Bool
   @State private var undo: ExpenseUndo?
   @State private var saveFeedback = 0
@@ -32,6 +34,7 @@ struct ContentView: View {
     self.screenshotScenario = screenshotScenario
     _showsSetup = State(initialValue: showsSetup)
     _showsHistory = State(initialValue: screenshotScenario?.isHistory == true)
+    _showsPeriodMoney = State(initialValue: screenshotScenario == .budgetChangeBills)
   }
 
   var body: some View {
@@ -87,10 +90,18 @@ struct ContentView: View {
             if showsCarryIn {
               Text("Carry-in from last period: \(Money.format(cents: allowance.carryInCents))")
             }
+            if allowance.extraCents != 0 {
+              Text("Extra money this period: \(Money.format(cents: allowance.extraCents))")
+            }
+            if let pendingCarryoverText {
+              Text(pendingCarryoverText)
+            }
           }
           .font(.caption)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
+
+          periodActions
 
           VStack(alignment: .leading, spacing: 12) {
             Text("Today's expenses")
@@ -139,7 +150,10 @@ struct ContentView: View {
       }
       .sensoryFeedback(.success, trigger: saveFeedback)
       .onChange(of: scenePhase) { _, phase in
-        if phase == .active { now = .now }
+        guard phase == .active else { return }
+        // The time zone may have changed while the app was in the background.
+        adoptCurrentTimeZone()
+        now = .now
       }
       .onReceive(
         NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
@@ -150,6 +164,7 @@ struct ContentView: View {
         NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)
           .receive(on: RunLoop.main)
       ) { _ in
+        adoptCurrentTimeZone()
         now = .now
       }
       .task(id: now) {
@@ -169,8 +184,11 @@ struct ContentView: View {
         } catch {}
       }
       .task {
+        adoptCurrentTimeZone()
         if opensQuickLog {
           showsQuickLog = true
+        } else if screenshotScenario == .budgetChangeAddMoney {
+          showsAddMoney = true
         } else if screenshotScenario == .todayUndo, undo == nil, let expense = expenses.first {
           // Let CI launch settle before starting the normal five-second undo window.
           try? await Task.sleep(for: .seconds(3))
@@ -194,9 +212,54 @@ struct ContentView: View {
       }
       .sheet(isPresented: $showsSetup) {
         NavigationStack {
-          BudgetSetupView(budget: budget)
+          BudgetSetupView(budget: budget, screenshotScenario: screenshotScenario)
         }
       }
+      .sheet(isPresented: $showsAddMoney) {
+        AddMoneyView(budget: budget, filled: screenshotScenario == .budgetChangeAddMoney)
+      }
+      .sheet(isPresented: $showsPeriodMoney) {
+        PeriodMoneyView(budget: budget, now: displayNow)
+      }
+    }
+  }
+
+  /// Add Money and This Period, side by side or stacked at accessibility sizes. Disabled before
+  /// the budget's first day, when there's no period to add to.
+  private var periodActions: some View {
+    let stacked = AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+    let inline = AnyLayout(HStackLayout(spacing: 12))
+    let layout = dynamicTypeSize.isAccessibilitySize ? stacked : inline
+    let hasStarted = allowance.period.contains(displayNow)
+    return layout {
+      Button {
+        showsAddMoney = true
+      } label: {
+        Label("Add Money", systemImage: "plus.circle")
+          .frame(minHeight: 44)
+      }
+      .accessibilityHint("Adds one-off money, like a bonus or gift, to this period.")
+      Button {
+        showsPeriodMoney = true
+      } label: {
+        Label("This Period", systemImage: "list.bullet.rectangle")
+          .frame(minHeight: 44)
+      }
+      .accessibilityHint("Shows extra money and lets you mark bills paid or skipped.")
+    }
+    .buttonStyle(.bordered)
+    .disabled(!hasStarted)
+  }
+
+  /// Re-expresses the budget's paydays in the current time zone after the device moves, so the
+  /// day boundary follows where the user is without shifting paydays.
+  private func adoptCurrentTimeZone() {
+    NSTimeZone.resetSystemTimeZone()
+    guard budget.adoptTimeZone(of: .current) else { return }
+    do {
+      try modelContext.save()
+    } catch {
+      modelContext.rollback()
     }
   }
 
@@ -234,6 +297,18 @@ struct ContentView: View {
       atBoundary: allowance.periodStart,
       budget: BudgetSnapshot(budget)
     )
+  }
+
+  /// Says when a carryover change made this period starts to apply.
+  private var pendingCarryoverText: String? {
+    let engine = AllowanceEngine(calendar: .current)
+    let snapshot = BudgetSnapshot(budget)
+    guard let pending = engine.pendingCarryoverChange(budget: snapshot, now: displayNow) else {
+      return nil
+    }
+    let day = pending.effectiveAt.formatted(.dateTime.month(.abbreviated).day())
+    let change = pending.enabled ? "on" : "off"
+    return "Carryover turns \(change) next period, on \(day)"
   }
 
   private var expensesToday: [Expense] {

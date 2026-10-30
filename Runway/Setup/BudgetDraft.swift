@@ -19,6 +19,9 @@ import SwiftData
 ///   real situation, and blocking it would trap a first-launch user on the setup screen. Invalid
 ///   or missing amounts block saving.
 /// - **Bill amounts** are per period, like spendable and savings. The due day is informational.
+/// - **Editing a saved budget** never rewrites past days: amounts apply from today, a period
+///   length or payday change ends the current period today, and carryover changes wait for the
+///   next period. See `apply(to:now:calendar:)`.
 struct BudgetDraft: Equatable, Sendable {
   /// One fixed bill row.
   struct Bill: Identifiable, Equatable, Sendable {
@@ -194,19 +197,25 @@ struct BudgetDraft: Equatable, Sendable {
       spendablePerPeriodCents: values.spendableCents,
       incomeCents: values.incomeCents,
       savingsCents: values.savingsCents,
-      carryoverEnabled: carryoverEnabled
+      carryoverEnabled: carryoverEnabled,
+      timeZoneIdentifier: calendar.timeZone.identifier
     )
     context.insert(budget)
-    apply(values.bills, to: budget)
+    apply(values.bills, to: budget, currentPeriod: nil)
     return budget
   }
 
   /// Writes the draft to an existing budget. Returns `false` and changes nothing if the draft has
-  /// issues. Period and carryover changes go through `Budget.updatePeriod` and
-  /// `Budget.setCarryover`, so they keep the carryover history consistent.
+  /// issues.
+  ///
+  /// Mid-period edits never rewrite the past: period changes go through `Budget.updatePeriod`
+  /// (ending the current period today), carryover through `Budget.setCarryover` (from the next
+  /// period), and a changed available amount is recorded with `Budget.recordAmountChange` so it
+  /// applies from today.
   @discardableResult
   func apply(to budget: Budget, now: Date, calendar: Calendar) -> Bool {
     guard let values else { return false }
+    let previousAvailableCents = budget.availablePerPeriodCents
     budget.updatePeriod(
       periodLength,
       start: calendar.startOfDay(for: periodStart),
@@ -217,8 +226,58 @@ struct BudgetDraft: Equatable, Sendable {
     budget.incomeCents = values.incomeCents
     budget.savingsCents = values.savingsCents
     budget.setCarryover(carryoverEnabled, now: now, calendar: calendar)
-    apply(values.bills, to: budget)
+    let engine = AllowanceEngine(calendar: calendar)
+    let current = engine.period(containing: now, of: BudgetSnapshot(budget))
+    apply(values.bills, to: budget, currentPeriod: current)
+    budget.recordAmountChange(from: previousAvailableCents, now: now, calendar: calendar)
     return true
+  }
+
+  // MARK: - Mid-period changes
+
+  /// Whether saving would change the available amount. The new amount applies from today.
+  func changesAvailable(of budget: Budget) -> Bool {
+    guard let availableCents else { return false }
+    return availableCents != budget.availablePerPeriodCents
+  }
+
+  /// Whether saving would change the period length or payday.
+  func changesSchedule(of budget: Budget, calendar: Calendar) -> Bool {
+    let start = calendar.startOfDay(for: periodStart)
+    return periodLength != budget.periodLength || start != budget.periodStart
+  }
+
+  /// What saving the draft's period length and payday would do today, for the confirm dialog.
+  /// `nil` if the schedule is unchanged or no period has started yet, so nothing ends.
+  func schedulePreview(
+    for budget: Budget,
+    expenses: [ExpenseSnapshot],
+    now: Date,
+    calendar: Calendar
+  ) -> ScheduleChangePreview? {
+    guard changesSchedule(of: budget, calendar: calendar) else { return nil }
+    return AllowanceEngine(calendar: calendar).scheduleChangePreview(
+      budget: BudgetSnapshot(budget),
+      expenses: expenses,
+      length: periodLength,
+      start: periodStart,
+      now: now
+    )
+  }
+
+  /// When the draft's carryover setting would start to apply: the next period boundary after
+  /// `now` under the draft's schedule. `nil` when it matches the setting in effect this period.
+  func carryoverChangeDate(for budget: Budget, now: Date, calendar: Calendar) -> Date? {
+    let engine = AllowanceEngine(calendar: calendar)
+    let snapshot = BudgetSnapshot(budget).changingSchedule(
+      to: periodLength,
+      start: periodStart,
+      now: now,
+      calendar: calendar
+    )
+    let current = engine.period(containing: now, of: snapshot)
+    let inEffect = engine.isCarryoverEnabled(atBoundary: current.start, budget: snapshot)
+    return carryoverEnabled == inEffect ? nil : current.end
   }
 
   private struct Values {
@@ -251,10 +310,19 @@ struct BudgetDraft: Equatable, Sendable {
     )
   }
 
-  /// Updates bills edited in the draft, inserts new ones, and deletes ones removed from it.
-  private func apply(_ parsedBills: [ParsedBill], to budget: Budget) {
+  /// Updates bills edited in the draft, inserts new ones, and deletes ones removed from it. Bills
+  /// marked paid or skipped in `currentPeriod` keep the period's total right when their amount
+  /// changes (see `Budget.rebaseMark`).
+  private func apply(
+    _ parsedBills: [ParsedBill],
+    to budget: Budget,
+    currentPeriod: BudgetPeriod?
+  ) {
     let keptIDs = Set(parsedBills.compactMap { $0.bill.modelID })
     for bill in budget.fixedBills where !keptIDs.contains(bill.persistentModelID) {
+      if let currentPeriod {
+        budget.rebaseMark(of: bill, releasedCents: bill.amountCents, in: currentPeriod)
+      }
       budget.fixedBills.removeAll { $0 === bill }
       budget.modelContext?.delete(bill)
     }
@@ -263,6 +331,10 @@ struct BudgetDraft: Equatable, Sendable {
       if let modelID = parsed.bill.modelID,
         let existing = budget.fixedBills.first(where: { $0.persistentModelID == modelID })
       {
+        if let currentPeriod {
+          let releasedCents = existing.amountCents - parsed.amountCents
+          budget.rebaseMark(of: existing, releasedCents: releasedCents, in: currentPeriod)
+        }
         existing.name = name
         existing.amountCents = parsed.amountCents
         existing.dueDay = parsed.bill.dueDay

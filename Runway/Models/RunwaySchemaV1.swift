@@ -10,7 +10,10 @@ enum RunwaySchemaV1: VersionedSchema {
   }
 
   static var models: [any PersistentModel.Type] {
-    [Budget.self, FixedBill.self, Expense.self, Category.self, CarryoverChange.self]
+    [
+      Budget.self, FixedBill.self, Expense.self, Category.self, CarryoverChange.self,
+      AmountChange.self, ScheduleChange.self, ExtraMoney.self, BillPayment.self,
+    ]
   }
 }
 
@@ -19,6 +22,10 @@ typealias FixedBill = RunwaySchemaV1.FixedBill
 typealias Expense = RunwaySchemaV1.Expense
 typealias Category = RunwaySchemaV1.Category
 typealias CarryoverChange = RunwaySchemaV1.CarryoverChange
+typealias AmountChange = RunwaySchemaV1.AmountChange
+typealias ScheduleChange = RunwaySchemaV1.ScheduleChange
+typealias ExtraMoney = RunwaySchemaV1.ExtraMoney
+typealias BillPayment = RunwaySchemaV1.BillPayment
 
 /// How long one budgeting period lasts.
 enum PeriodLength: String, Codable, CaseIterable, Sendable {
@@ -44,6 +51,9 @@ extension RunwaySchemaV1 {
     /// The current carryover setting. Change it with `setCarryover(_:now:calendar:)` so the change
     /// is recorded in `carryoverChanges` and only applies from the next period.
     var carryoverEnabled: Bool = true
+    /// The time zone whose local midnights the day-only dates (`periodStart` and every change's
+    /// `effectiveAt`) are stored in. Empty until first set; see `adoptTimeZone(of:)`.
+    var timeZoneIdentifier: String = ""
 
     @Relationship(deleteRule: .cascade, inverse: \FixedBill.budget)
     var fixedBills: [FixedBill] = []
@@ -52,13 +62,32 @@ extension RunwaySchemaV1 {
     @Relationship(deleteRule: .cascade, inverse: \CarryoverChange.budget)
     var carryoverChanges: [CarryoverChange] = []
 
+    /// Every mid-period change to the available amount, in no particular order. Record them
+    /// with `recordAmountChange(from:now:calendar:)`.
+    @Relationship(deleteRule: .cascade, inverse: \AmountChange.budget)
+    var amountChanges: [AmountChange] = []
+
+    /// Every change to the period length or payday, in no particular order. Change the
+    /// schedule with `updatePeriod(_:start:now:calendar:)`.
+    @Relationship(deleteRule: .cascade, inverse: \ScheduleChange.budget)
+    var scheduleChanges: [ScheduleChange] = []
+
+    /// One-off money added to a period, in no particular order.
+    @Relationship(deleteRule: .cascade, inverse: \ExtraMoney.budget)
+    var extraMoney: [ExtraMoney] = []
+
+    /// Every bill mark (paid, skipped, or unpaid again), in no particular order.
+    @Relationship(deleteRule: .cascade, inverse: \BillPayment.budget)
+    var billPayments: [BillPayment] = []
+
     init(
       periodLength: PeriodLength = .biweekly,
       periodStart: Date,
       spendablePerPeriodCents: Int,
       incomeCents: Int? = nil,
       savingsCents: Int = 0,
-      carryoverEnabled: Bool = true
+      carryoverEnabled: Bool = true,
+      timeZoneIdentifier: String = ""
     ) {
       self.periodLength = periodLength
       self.periodStart = periodStart
@@ -66,6 +95,7 @@ extension RunwaySchemaV1 {
       self.incomeCents = incomeCents
       self.savingsCents = savingsCents
       self.carryoverEnabled = carryoverEnabled
+      self.timeZoneIdentifier = timeZoneIdentifier
     }
   }
 
@@ -76,6 +106,10 @@ extension RunwaySchemaV1 {
     /// Day of the month the bill is due (1–31), if known.
     var dueDay: Int?
     var budget: Budget?
+
+    /// Paid or skipped marks. They outlive the bill so past periods keep their figures.
+    @Relationship(deleteRule: .nullify, inverse: \BillPayment.bill)
+    var payments: [BillPayment] = []
 
     init(name: String, amountCents: Int, dueDay: Int? = nil) {
       self.name = name
@@ -125,6 +159,95 @@ extension RunwaySchemaV1 {
       self.enabled = enabled
       self.previousEnabled = previousEnabled
       self.effectiveAt = effectiveAt
+    }
+  }
+
+  /// A change to the budget's available amount (spendable − bills − savings). Days before
+  /// `effectiveAt` (a local midnight) used `previousAvailableCents`; the next change, or the
+  /// budget's live amounts, apply from `effectiveAt` on.
+  @Model
+  final class AmountChange {
+    var previousAvailableCents: Int = 0
+    var effectiveAt: Date = Date.now
+    var budget: Budget?
+
+    init(previousAvailableCents: Int, effectiveAt: Date) {
+      self.previousAvailableCents = previousAvailableCents
+      self.effectiveAt = effectiveAt
+    }
+  }
+
+  /// A change to the period length or payday. Days before `effectiveAt` (a local midnight)
+  /// followed the previous schedule, and the period running then ended at `effectiveAt`.
+  @Model
+  final class ScheduleChange {
+    var previousPeriodLength: PeriodLength = PeriodLength.biweekly
+    var previousPeriodStart: Date = Date.now
+    var effectiveAt: Date = Date.now
+    var budget: Budget?
+
+    init(previousPeriodLength: PeriodLength, previousPeriodStart: Date, effectiveAt: Date) {
+      self.previousPeriodLength = previousPeriodLength
+      self.previousPeriodStart = previousPeriodStart
+      self.effectiveAt = effectiveAt
+    }
+  }
+
+  /// One-off money, like a bonus or gift, added to the period containing `date`.
+  @Model
+  final class ExtraMoney {
+    var amountCents: Int = 0
+    var note: String = ""
+    var date: Date = Date.now
+    var budget: Budget?
+
+    init(amountCents: Int, note: String = "", date: Date) {
+      self.amountCents = amountCents
+      self.note = note
+      self.date = date
+    }
+  }
+
+  /// A bill marked paid, skipped, or unpaid again in the period containing `date`. Marks are
+  /// only ever added, so earlier days keep their figures: the bill's status is its latest mark in
+  /// the period (by `sequence`), and each mark records in `adjustmentCents` how much the period's
+  /// money changes from `date` on.
+  ///
+  /// While paid or skipped, the period gets back `plannedCents - paidCents`: the whole bill when
+  /// skipped, the difference when paid at another amount, and nothing when paid as planned.
+  @Model
+  final class BillPayment {
+    var isSkipped: Bool = false
+    /// Clears the bill's earlier mark in the period: it's unpaid again.
+    var isCleared: Bool = false
+    /// The bill's amount set aside for the period when it was marked.
+    var plannedCents: Int = 0
+    /// What was paid; 0 when skipped or cleared.
+    var paidCents: Int = 0
+    /// The change, from `date` on, to what the period gets back from the bill.
+    var adjustmentCents: Int = 0
+    /// Orders marks made at the same moment. Higher is later.
+    var sequence: Int = 0
+    var date: Date = Date.now
+    var budget: Budget?
+    var bill: FixedBill?
+
+    init(
+      isSkipped: Bool,
+      isCleared: Bool = false,
+      plannedCents: Int,
+      paidCents: Int,
+      adjustmentCents: Int,
+      sequence: Int,
+      date: Date
+    ) {
+      self.isSkipped = isSkipped
+      self.isCleared = isCleared
+      self.plannedCents = plannedCents
+      self.paidCents = paidCents
+      self.adjustmentCents = adjustmentCents
+      self.sequence = sequence
+      self.date = date
     }
   }
 

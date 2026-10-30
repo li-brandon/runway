@@ -115,8 +115,70 @@ struct AppLaunchTests {
         "history-period-summary",
         "history-edit",
         "history-500",
+        "budget-change-amounts",
+        "budget-change-period",
+        "budget-change-carryover",
+        "budget-change-add-money",
+        "budget-change-bills",
       ]
     )
+  }
+
+  @Test("Budget-change scenarios open setup with unsaved edits or seed this period's money")
+  func budgetChangeScenarios() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    let opensSetup = ScreenshotScenario.allCases.filter(\.opensBudgetSetup)
+    #expect(
+      opensSetup == [
+        .setupFilled, .setupWarning, .budgetChangeAmounts, .budgetChangePeriod,
+        .budgetChangeCarryover,
+      ]
+    )
+
+    let container = try RunwayModelContainer.make(inMemory: true)
+    let context = ModelContext(container)
+    let budget = try #require(
+      try ScreenshotScenario.setupFilled.seed(into: context, now: now, calendar: calendar)
+    )
+    var amounts = BudgetDraft(budget: budget, locale: Money.fixedLocale)
+    ScreenshotScenario.budgetChangeAmounts.prepare(&amounts)
+    #expect(amounts.changesAvailable(of: budget))
+    var period = BudgetDraft(budget: budget, locale: Money.fixedLocale)
+    ScreenshotScenario.budgetChangePeriod.prepare(&period)
+    #expect(period.changesSchedule(of: budget, calendar: calendar))
+    #expect(
+      period.schedulePreview(for: budget, expenses: [], now: now, calendar: calendar) != nil
+    )
+    var carryover = BudgetDraft(budget: budget, locale: Money.fixedLocale)
+    ScreenshotScenario.budgetChangeCarryover.prepare(&carryover)
+    let carryoverDate = carryover.carryoverChangeDate(for: budget, now: now, calendar: calendar)
+    #expect(carryoverDate == calendar.date(2026, 6, 21))
+
+    let billsContext = ModelContext(container)
+    let billsBudget = try #require(
+      try ScreenshotScenario.budgetChangeBills.seed(
+        into: billsContext,
+        now: now,
+        calendar: calendar
+      )
+    )
+    let current = AllowanceEngine(calendar: calendar).period(
+      containing: now,
+      of: BudgetSnapshot(billsBudget)
+    )
+    let statuses = billsBudget.fixedBills
+      .sorted { $0.name < $1.name }
+      .map { billsBudget.status(of: $0, in: current) }
+    // Internet, Phone, Rent.
+    #expect(statuses == [.unpaid, .skipped, .paid(cents: 110_000)])
+    #expect(billsBudget.extraMoneyItems(in: current).map(\.amountCents) == [15_000])
+    // 995 available + 150 gift + 45 skipped phone.
+    let result = AllowanceEngine(calendar: calendar).currentAllowance(
+      budget: BudgetSnapshot(billsBudget),
+      expenses: [],
+      now: now
+    )
+    #expect(result.remainingPeriodCents == 99_500 + 15_000 + 4_500)
   }
 
   @Test("Scenarios seed no budget, a healthy one, and one with nothing available")
@@ -152,6 +214,11 @@ struct AppLaunchTests {
         .historyPeriodSummary: 110_000,
         .historyEdit: 110_000,
         .history500: 110_000,
+        .budgetChangeAmounts: 99_500,
+        .budgetChangePeriod: 99_500,
+        .budgetChangeCarryover: 99_500,
+        .budgetChangeAddMoney: 99_500,
+        .budgetChangeBills: 99_500,
       ]
     )
   }

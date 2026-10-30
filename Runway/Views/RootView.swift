@@ -23,7 +23,7 @@ struct RootView: View {
     } else if AppRoute(hasBudget: !budgets.isEmpty) == .main, let budget = budgets.first {
       ContentView(
         budget: budget,
-        showsSetup: screenshotScenario == .setupFilled || screenshotScenario == .setupWarning,
+        showsSetup: screenshotScenario?.opensBudgetSetup == true,
         screenshotScenario: screenshotScenario
       )
     } else {

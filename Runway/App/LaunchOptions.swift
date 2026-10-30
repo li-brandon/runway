@@ -68,6 +68,42 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   /// The previous period with 500 expenses, scrolled to its oldest day, to check the list scrolls.
   case history500 = "history-500"
 
+  /// Budget editing with spendable raised mid-period, noting that new amounts apply from today.
+  case budgetChangeAmounts = "budget-change-amounts"
+  /// Switching to monthly periods mid-period, with the confirm dialog open.
+  case budgetChangePeriod = "budget-change-period"
+  /// Carryover switched off mid-period, noting it takes effect next period.
+  case budgetChangeCarryover = "budget-change-carryover"
+  /// The Add Money sheet filled in with a gift.
+  case budgetChangeAddMoney = "budget-change-add-money"
+  /// This period's extra money and bills: a gift, Rent paid, and Phone skipped.
+  case budgetChangeBills = "budget-change-bills"
+
+  /// Opens setup on a saved budget at launch.
+  var opensBudgetSetup: Bool {
+    switch self {
+    case .setupFilled, .setupWarning, .budgetChangeAmounts, .budgetChangePeriod,
+      .budgetChangeCarryover:
+      true
+    default:
+      false
+    }
+  }
+
+  /// Makes this scenario's unsaved edits to the setup screen's draft.
+  func prepare(_ draft: inout BudgetDraft) {
+    switch self {
+    case .budgetChangeAmounts:
+      draft.spendableText = BudgetDraft.text(fromCents: 260_000)
+    case .budgetChangePeriod:
+      draft.periodLength = .monthly
+    case .budgetChangeCarryover:
+      draft.carryoverEnabled = false
+    default:
+      break
+    }
+  }
+
   var isHistory: Bool {
     switch self {
     case .historyList, .historyPeriodSummary, .historyEdit, .history500: true
@@ -117,7 +153,9 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       }
       try context.save()
       return nil
-    case .setupFilled, .quickLogEmpty, .quickLogFilled, .quickLogNote, .todayUndo:
+    case .setupFilled, .quickLogEmpty, .quickLogFilled, .quickLogNote, .todayUndo,
+      .budgetChangeAmounts, .budgetChangePeriod, .budgetChangeCarryover, .budgetChangeAddMoney,
+      .budgetChangeBills:
       // 2,400 - (1,100 + 45 + 60) - 200 = 995 available.
       budget = Budget(
         periodStart: periodStart,
@@ -157,6 +195,12 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     for bill in bills {
       context.insert(bill)
       budget.fixedBills.append(bill)
+    }
+    if self == .budgetChangeBills {
+      budget.addExtraMoney(cents: 15_000, note: "Birthday gift", now: now)
+      let rent = bills[0]
+      budget.setStatus(.paid(cents: rent.amountCents), of: rent, now: now, calendar: calendar)
+      budget.setStatus(.skipped, of: bills[1], now: now, calendar: calendar)
     }
     if self == .todayUndo {
       try CategoryService(context: context).createExpense(

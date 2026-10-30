@@ -189,6 +189,9 @@ struct HistoryView: View {
     Section {
       valueRow(Money.format(cents: period.spentCents)) { Text("Spent") }
       valueRow(Money.format(cents: period.availableCents)) { Text("Available") }
+      if period.extraCents != 0 {
+        valueRow(Money.format(cents: period.extraCents)) { Text("Extra money") }
+      }
       OverUnderLabel(remainingCents: period.remainingCents)
       valueRow("\(period.daysOver) of \(period.days.count)") { Text("Days over budget") }
       valueRow(carryInText(period)) { Text("Carry-in") }

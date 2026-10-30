@@ -8,8 +8,12 @@ import Foundation
 /// - **Nothing is stored.** Every figure is derived from the expenses on each call, so an edit or
 ///   delete changes later days, carryover, and Today the next time anything renders.
 /// - **Day rows** match `AllowanceEngine.allowance(in:…)` evaluated on that day: the allowance is
-///   (spendable + carry-in − spent in the period before the day) ÷ days left including the day,
-///   floor-divided. Over/under is that allowance minus the day's spending.
+///   (spendable in effect that day + carry-in + extra money through the day − spent in the period
+///   before the day) ÷ days left including the day, floor-divided. Over/under is that allowance
+///   minus the day's spending. So a mid-period amount change, extra money, or a schedule change
+///   leaves the rows before it as they were.
+/// - **Partial periods** (cut short or started late by a schedule change) show their prorated
+///   money in the summary, which is what their carry-out is based on.
 /// - **Periods** run from period 0 to the period containing `now`, newest first. Each lists its
 ///   days from the first through today (all days for a completed period), newest first.
 /// - **Spending** in a completed period counts every expense in it, as its carry-out does. The
@@ -32,31 +36,36 @@ struct HistoryEngine: Sendable {
     now: Date
   ) -> [HistoryPeriod<CategoryID>] {
     let engine = AllowanceEngine(calendar: calendar)
-    let current = engine.period(containing: now, of: budget)
+    let all = engine.periods(through: now, of: budget)
     let todayStart = calendar.startOfDay(for: now)
-    let anchor = engine.period(at: 0, of: budget).start
+    let anchor = all[0].start
     let sorted = expenses.filter { $0.date >= anchor }.sorted { $0.date < $1.date }
+    let extras = budget.extraMoney.filter { $0.date >= anchor }.sorted { $0.date < $1.date }
 
     var cursor = 0
+    var extraCursor = 0
     var carryInCents = 0
     var result: [HistoryPeriod<CategoryID>] = []
-    result.reserveCapacity(current.index + 1)
-    for index in 0...current.index {
-      let period = engine.period(at: index, of: budget)
+    result.reserveCapacity(all.count)
+    for period in all {
+      let isCurrent = period.index == all.count - 1
       let periodCarryInCents = carryInCents
-      let availableCents = budget.spendablePerPeriodCents + periodCarryInCents
-      let totalDays = max(1, engine.dayCount(from: period.start, to: period.end))
 
       var days: [HistoryDay] = []
       var spentCents = 0
+      var extraCents = 0
       var categoryCents: [CategoryID: Int] = [:]
       var categoryOrder: [CategoryID] = []
       var day = period.start
-      var offset = 0
       while day < period.end {
         let next = engine.startOfNextDay(after: day)
         guard next > day else { break }
         let counts = day <= todayStart
+        // Extra money counts from its own day, including toward that day's allowance.
+        while extraCursor < extras.count, extras[extraCursor].date < next {
+          if counts { extraCents += extras[extraCursor].amountCents }
+          extraCursor += 1
+        }
         var spentDayCents = 0
         while cursor < sorted.count, sorted[cursor].date < next {
           let expense = sorted[cursor]
@@ -69,9 +78,10 @@ struct HistoryEngine: Sendable {
           categoryCents[expense.categoryID, default: 0] += expense.amountCents
         }
         if counts {
-          let daysLeft = max(1, totalDays - offset)
+          let plannedCents = engine.plannedSpendableCents(of: period, on: day, budget: budget)
+          let daysLeft = max(1, engine.dayCount(from: day, to: period.scheduledEnd))
           let allowanceCents = AllowanceEngine.floorDivide(
-            availableCents - spentCents,
+            plannedCents + periodCarryInCents + extraCents - spentCents,
             by: daysLeft
           )
           days.append(
@@ -85,11 +95,15 @@ struct HistoryEngine: Sendable {
         }
         spentCents += spentDayCents
         day = next
-        offset += 1
       }
 
-      let isCurrent = index == current.index
-      let remainingCents = availableCents - spentCents
+      // The current period plans with today's amount; a completed one with its last day's.
+      let spendableCents = engine.spendableCents(
+        of: period,
+        on: isCurrent ? todayStart : engine.lastDay(of: period),
+        budget: budget
+      )
+      let remainingCents = spendableCents + periodCarryInCents + extraCents - spentCents
       var carryOutCents: Int?
       if !isCurrent {
         let enabled = engine.isCarryoverEnabled(atBoundary: period.end, budget: budget)
@@ -113,8 +127,9 @@ struct HistoryEngine: Sendable {
           period: period,
           isCurrent: isCurrent,
           carryoverEnabledAtStart: enabledAtStart,
-          spendableCents: budget.spendablePerPeriodCents,
+          spendableCents: spendableCents,
           carryInCents: periodCarryInCents,
+          extraCents: extraCents,
           spentCents: spentCents,
           carryOutCents: carryOutCents,
           days: days.reversed(),
@@ -143,8 +158,7 @@ struct HistoryEngine: Sendable {
 
   /// The last local day of `period`, for display.
   func lastDay(of period: BudgetPeriod) -> Date {
-    let previous = calendar.date(byAdding: .day, value: -1, to: period.end) ?? period.start
-    return max(period.start, calendar.startOfDay(for: previous))
+    AllowanceEngine(calendar: calendar).lastDay(of: period)
   }
 }
 
@@ -188,8 +202,12 @@ struct HistoryPeriod<CategoryID: Hashable & Sendable>: Equatable, Sendable {
   var isCurrent: Bool
   /// Whether carryover applied when entering this period (as Today's carry-in line uses).
   var carryoverEnabledAtStart: Bool
+  /// The period's money: prorated if a schedule change made it partial, and as of today (current)
+  /// or its last day (completed) if the amount changed.
   var spendableCents: Int
   var carryInCents: Int
+  /// Extra money (one-off income and bill adjustments) through today.
+  var extraCents: Int
   var spentCents: Int
   /// What the next period receives: the remainder, or 0 with carryover off at the next boundary.
   /// `nil` while the period is in progress.
@@ -199,8 +217,8 @@ struct HistoryPeriod<CategoryID: Hashable & Sendable>: Equatable, Sendable {
   /// Highest net spending first; ties keep the order of first spending.
   var categories: [HistoryCategoryTotal<CategoryID>]
 
-  /// Spendable plus carry-in.
-  var availableCents: Int { spendableCents + carryInCents }
+  /// Spendable plus carry-in plus extra money.
+  var availableCents: Int { spendableCents + carryInCents + extraCents }
   /// Available minus spent: negative when the period went over.
   var remainingCents: Int { availableCents - spentCents }
   var daysOver: Int { days.reduce(0) { $1.isOver ? $0 + 1 : $0 } }
