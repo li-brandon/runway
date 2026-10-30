@@ -312,11 +312,15 @@ struct MidPeriodAmountTests {
     #expect(saved.billPayments.count == 3)
     #expect(saved.billPayments.reduce(0) { $0 + $1.adjustmentCents } == 0)
     let history = HistoryEngine(calendar: calendar).periods(
-      budget: BudgetSnapshot(saved), expenses: [HistoryExpense<String>](), now: friday
+      budget: BudgetSnapshot(saved),
+      expenses: [HistoryExpense<String>](),
+      now: friday
     )[0]
-    #expect(history.days.reversed().map(\.allowanceCents) == [
-      10_000, 11_666, 20_000, 18_750, 23_333,
-    ])
+    #expect(
+      history.days.reversed().map(\.allowanceCents) == [
+        10_000, 11_666, 20_000, 18_750, 23_333,
+      ]
+    )
     #expect(history.remainingCents == 70_000)
   }
 }

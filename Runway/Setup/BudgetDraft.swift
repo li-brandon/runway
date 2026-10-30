@@ -323,7 +323,10 @@ struct BudgetDraft: Equatable, Sendable {
     for bill in budget.fixedBills where !keptIDs.contains(bill.persistentModelID) {
       if let currentPeriod, let now {
         budget.rebaseMark(
-          of: bill, releasedCents: bill.amountCents, in: currentPeriod, now: now
+          of: bill,
+          releasedCents: bill.amountCents,
+          in: currentPeriod,
+          now: now
         )
       }
       budget.fixedBills.removeAll { $0 === bill }
@@ -337,7 +340,10 @@ struct BudgetDraft: Equatable, Sendable {
         if let currentPeriod, let now {
           let releasedCents = existing.amountCents - parsed.amountCents
           budget.rebaseMark(
-            of: existing, releasedCents: releasedCents, in: currentPeriod, now: now
+            of: existing,
+            releasedCents: releasedCents,
+            in: currentPeriod,
+            now: now
           )
         }
         existing.name = name

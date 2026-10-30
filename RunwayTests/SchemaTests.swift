@@ -75,15 +75,20 @@ struct SchemaTests {
       let container = try ModelContainer(for: schema, configurations: [configuration])
       let context = ModelContext(container)
       let budget = RunwaySchemaV1Original.Budget(
-        periodLength: .weekly, periodStart: start, spendablePerPeriodCents: 100_000,
-        savingsCents: 5_000, carryoverEnabled: false
+        periodLength: .weekly,
+        periodStart: start,
+        spendablePerPeriodCents: 100_000,
+        savingsCents: 5_000,
+        carryoverEnabled: false
       )
       context.insert(budget)
       let bill = RunwaySchemaV1Original.FixedBill(name: "Rent", amountCents: 30_000)
       context.insert(bill)
       budget.fixedBills.append(bill)
       let category = RunwaySchemaV1Original.Category(
-        name: "Food", symbol: "fork.knife", colorHex: "#FF9500"
+        name: "Food",
+        symbol: "fork.knife",
+        colorHex: "#FF9500"
       )
       context.insert(category)
       #if DEBUG
@@ -96,7 +101,9 @@ struct SchemaTests {
       context.insert(expense)
       expense.category = category
       let change = RunwaySchemaV1Original.CarryoverChange(
-        enabled: false, previousEnabled: true, effectiveAt: calendar.date(2026, 6, 8)
+        enabled: false,
+        previousEnabled: true,
+        effectiveAt: calendar.date(2026, 6, 8)
       )
       context.insert(change)
       budget.carryoverChanges.append(change)

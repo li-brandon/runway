@@ -185,7 +185,9 @@ struct CatchUpAndTimeZoneTests {
     #expect(periods.map(\.start) == [1, 3, 5].map { losAngeles.date(2026, 6, $0) })
 
     let localAllowance = engine.currentAllowance(
-      budget: BudgetSnapshot(budget), expenses: [], now: losAngeles.date(2026, 6, 5, 9)
+      budget: BudgetSnapshot(budget),
+      expenses: [],
+      now: losAngeles.date(2026, 6, 5, 9)
     )
     #expect(localAllowance.daysLeft == 7)
     #expect(localAllowance.carryInCents == 0)
