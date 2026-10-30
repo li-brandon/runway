@@ -288,6 +288,104 @@ struct SpendingSummaryTests {
     #expect(SpendingView.month.comparisonLabel(mode: .rolling) == "previous 30 days")
   }
 
+  @Test("Headings name the rolling windows and keep calendar wording")
+  func headings() {
+    #expect(SpendingView.week.heading(mode: .rolling) == "Spent in the last 7 days")
+    #expect(SpendingView.month.heading(mode: .rolling) == "Spent in the last 30 days")
+    #expect(SpendingView.week.heading(mode: .calendar) == "Spent this week")
+    #expect(SpendingView.month.heading(mode: .calendar) == "Spent this month")
+    for mode in SpendingWindowMode.allCases {
+      #expect(SpendingView.day.heading(mode: mode) == "Spent this day")
+    }
+  }
+
+  @Test("31- and 30-day calendar months get correct bounds, budget, totals and comparison")
+  func monthLengths() {
+    struct MonthCase {
+      let now: Date
+      let start: Date
+      let end: Date
+      let previousStart: Date
+      let previousEnd: Date
+      let days: Int
+      let dailyCents: Int
+      let spentCents: Int
+      let previousSpentCents: Int
+      let change: Double
+    }
+    let engine = SpendingSummaryEngine(calendar: calendar)
+    let budget = BudgetSnapshot(
+      periodLength: .monthly,
+      periodStart: calendar.date(2026, 1, 1),
+      spendablePerPeriodCents: 100_000,
+      carryoverEnabled: false
+    )
+    // Powers of two, so a total shows exactly which expenses it counted.
+    let expenses = [
+      HistoryExpense(amountCents: 1, date: calendar.date(2026, 5, 1), categoryID: 0),
+      HistoryExpense(amountCents: 2, date: calendar.date(2026, 5, 30, 23, 59), categoryID: 0),
+      HistoryExpense(amountCents: 4, date: calendar.date(2026, 5, 31), categoryID: 0),
+      HistoryExpense(amountCents: 8, date: calendar.date(2026, 6, 1), categoryID: 0),
+      HistoryExpense(amountCents: 16, date: calendar.date(2026, 6, 30, 23, 59), categoryID: 0),
+      HistoryExpense(amountCents: 32, date: calendar.date(2026, 7, 1), categoryID: 0),
+      HistoryExpense(amountCents: 64, date: calendar.date(2026, 7, 31, 8), categoryID: 0),
+      HistoryExpense(amountCents: 128, date: calendar.date(2026, 8, 1), categoryID: 0),
+    ]
+    let cases = [
+      // The whole of June is shorter than July's 31 elapsed days, so it's capped at its end.
+      MonthCase(
+        now: calendar.date(2026, 7, 31, 12),
+        start: calendar.date(2026, 7, 1),
+        end: calendar.date(2026, 8, 1),
+        previousStart: calendar.date(2026, 6, 1),
+        previousEnd: calendar.date(2026, 7, 1),
+        days: 31,
+        dailyCents: 3_225,
+        spentCents: 32 + 64,
+        previousSpentCents: 8 + 16,
+        change: 300
+      ),
+      // June's 30 elapsed days compare with May 1–30, leaving out May 31.
+      MonthCase(
+        now: calendar.date(2026, 6, 30, 12),
+        start: calendar.date(2026, 6, 1),
+        end: calendar.date(2026, 7, 1),
+        previousStart: calendar.date(2026, 5, 1),
+        previousEnd: calendar.date(2026, 5, 31),
+        days: 30,
+        dailyCents: 3_333,
+        spentCents: 8 + 16,
+        previousSpentCents: 1 + 2,
+        change: 700
+      ),
+    ]
+    for month in cases {
+      let result = engine.summary(
+        budget: budget,
+        expenses: expenses,
+        view: .month,
+        mode: .calendar,
+        now: month.now
+      )
+      #expect(result.window.start == month.start)
+      #expect(result.window.end == month.end)
+      #expect(result.previousWindow.start == month.previousStart)
+      #expect(result.previousWindow.end == month.previousEnd)
+      #expect(result.budgetCents == month.days * month.dailyCents)
+      #expect(result.spentCents == month.spentCents)
+      #expect(result.previousSpentCents == month.previousSpentCents)
+      #expect(result.percentageChange == month.change)
+      let day = engine.summary(
+        budget: budget,
+        expenses: expenses,
+        view: .day,
+        mode: .calendar,
+        now: month.now
+      )
+      #expect(day.budgetCents == month.dailyCents)
+    }
+  }
+
   @Test("AppStorage keys default to Day and Calendar and survive preference recreation")
   @MainActor
   func preferences() throws {

@@ -5,6 +5,14 @@ enum SpendingView: String, CaseIterable, Sendable {
   case week = "Week"
   case month = "Month"
 
+  func heading(mode: SpendingWindowMode) -> String {
+    switch self {
+    case .day: return "Spent this day"
+    case .week: return mode == .rolling ? "Spent in the last 7 days" : "Spent this week"
+    case .month: return mode == .rolling ? "Spent in the last 30 days" : "Spent this month"
+    }
+  }
+
   func comparisonLabel(mode: SpendingWindowMode) -> String {
     switch self {
     case .day: return "yesterday"
