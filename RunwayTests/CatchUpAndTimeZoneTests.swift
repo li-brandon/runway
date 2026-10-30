@@ -4,6 +4,28 @@ import Testing
 
 @testable import Runway
 
+/// A time zone move for rows on a 2026 day when Chicago's clocks change. Chicago's midnight is
+/// 6 AM UTC on March 8 (still CST) and 5 AM UTC on November 1 (still CDT); London's is midnight
+/// UTC on both.
+struct DSTMove: Sendable, CustomTestStringConvertible {
+  let from: String
+  let to: String
+  let month: Int
+  let day: Int
+  let midnightUTCHour: Int
+
+  var testDescription: String { "\(from) to \(to), 2026-\(month)-\(day)" }
+
+  static let all = [
+    DSTMove(from: "UTC", to: "America/Chicago", month: 3, day: 8, midnightUTCHour: 6),
+    DSTMove(from: "UTC", to: "America/Chicago", month: 11, day: 1, midnightUTCHour: 5),
+    DSTMove(from: "Pacific/Honolulu", to: "America/Chicago", month: 3, day: 8, midnightUTCHour: 6),
+    DSTMove(from: "Pacific/Honolulu", to: "America/Chicago", month: 11, day: 1, midnightUTCHour: 5),
+    DSTMove(from: "America/Chicago", to: "Europe/London", month: 3, day: 8, midnightUTCHour: 0),
+    DSTMove(from: "America/Chicago", to: "Europe/London", month: 11, day: 1, midnightUTCHour: 0),
+  ]
+}
+
 /// Opening the app after days or periods away, and moving between time zones. Weekly $700
 /// budgets anchored Monday 2026-06-01.
 struct CatchUpAndTimeZoneTests {
@@ -34,6 +56,38 @@ struct CatchUpAndTimeZoneTests {
     context.insert(budget)
     try context.save()
     return budget
+  }
+
+  /// A budget in `calendar`'s time zone with extra money and a bill mark stored at exactly `date`.
+  /// Built directly because `addExtraMoney` and `setStatus` now store local midnight, while older
+  /// rows can hold any time of day.
+  func legacyRows(
+    at date: Date,
+    in calendar: Calendar,
+    context: ModelContext
+  ) throws -> (budget: Budget, extra: ExtraMoney, mark: BillPayment) {
+    let budget = Budget(
+      periodLength: .weekly,
+      periodStart: calendar.startOfDay(for: date),
+      spendablePerPeriodCents: 70_000,
+      timeZoneIdentifier: calendar.timeZone.identifier
+    )
+    context.insert(budget)
+    let extra = ExtraMoney(amountCents: 15_000, note: "Gift", date: date)
+    context.insert(extra)
+    budget.extraMoney.append(extra)
+    let mark = BillPayment(
+      isSkipped: true,
+      plannedCents: 30_000,
+      paidCents: 0,
+      adjustmentCents: 30_000,
+      sequence: 0,
+      date: date
+    )
+    context.insert(mark)
+    budget.billPayments.append(mark)
+    try context.save()
+    return (budget, extra, mark)
   }
 
   // MARK: - Catching up
@@ -271,6 +325,73 @@ struct CatchUpAndTimeZoneTests {
     #expect(period.start == kiritimati.date(2026, 6, 1))
     #expect(budget.extraMoneyItems(in: period).map(\.note) == ["Gift"])
     #expect(budget.status(of: rent, in: period) == .skipped)
+  }
+
+  @Test(
+    "Legacy rows saved at a time of day move to the new zone's midnight on the same day",
+    arguments: ["Asia/Tokyo", "America/New_York"],
+    [23, 0]
+  )
+  func legacyRowsKeepCalendarDay(destination: String, hour: Int) throws {
+    let honolulu = Calendar.gregorian("Pacific/Honolulu")
+    let target = Calendar.gregorian(destination)
+    let context = ModelContext(container)
+    // 11:30 PM on Jun 7 in Honolulu is already Jun 8 in both destinations.
+    let saved = honolulu.date(2026, 6, 7, hour, 30)
+    let rows = try legacyRows(at: saved, in: honolulu, context: context)
+    #expect(rows.extra.date == saved)
+    #expect(rows.mark.date == saved)
+
+    #expect(rows.budget.adoptTimeZone(of: target))
+    try context.save()
+
+    #expect(rows.budget.timeZoneIdentifier == destination)
+    #expect(rows.extra.date == target.date(2026, 6, 7))
+    #expect(rows.mark.date == target.date(2026, 6, 7))
+  }
+
+  @Test(
+    "Rows on DST days keep their calendar day moving into and out of Chicago",
+    arguments: DSTMove.all,
+    [0, 3, 23]
+  )
+  func dstDayRowsKeepCalendarDay(move: DSTMove, hour: Int) throws {
+    let source = Calendar.gregorian(move.from)
+    let target = Calendar.gregorian(move.to)
+    let context = ModelContext(container)
+    // 12:30, 3:30, and 11:30 are neither skipped nor repeated on either day.
+    let saved = source.date(2026, move.month, move.day, hour, 30)
+    let rows = try legacyRows(at: saved, in: source, context: context)
+
+    #expect(rows.budget.adoptTimeZone(of: target))
+    try context.save()
+
+    let midnight = target.date(2026, move.month, move.day)
+    let utc = Calendar.gregorian("UTC")
+    #expect(midnight == utc.date(2026, move.month, move.day, move.midnightUTCHour))
+    #expect(rows.extra.date == midnight)
+    #expect(rows.mark.date == midnight)
+    #expect(rows.budget.periodStart == midnight)
+  }
+
+  @Test(
+    "Rows in either pass of Chicago's repeated 1:30 AM keep the fall-back day",
+    arguments: [1.5, 2.5]
+  )
+  func repeatedHourRowsKeepCalendarDay(hoursAfterMidnight: Double) throws {
+    let london = Calendar.gregorian("Europe/London")
+    let context = ModelContext(container)
+    // Offsets from midnight, because the `date` helper can't choose between the two passes.
+    let saved = chicago.date(2026, 11, 1).addingTimeInterval(hoursAfterMidnight * 3_600)
+    #expect(chicago.component(.hour, from: saved) == 1)
+    #expect(chicago.component(.minute, from: saved) == 30)
+    let rows = try legacyRows(at: saved, in: chicago, context: context)
+
+    #expect(rows.budget.adoptTimeZone(of: london))
+    try context.save()
+
+    #expect(rows.extra.date == london.date(2026, 11, 1))
+    #expect(rows.mark.date == london.date(2026, 11, 1))
   }
 
   @Test("A budget without a recorded time zone just records the current one")
