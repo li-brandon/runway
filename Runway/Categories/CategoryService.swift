@@ -145,6 +145,29 @@ struct CategoryService {
     return expense
   }
 
+  /// Edits a saved expense in place. A `nil` category keeps the current one, or assigns Other if
+  /// the expense has none. `createdAt` is unchanged, so editing doesn't reorder recent categories.
+  func updateExpense(
+    _ expense: Expense,
+    amountCents: Int,
+    note: String,
+    date: Date,
+    category: Category? = nil
+  ) throws {
+    let assigned: Category
+    if let category {
+      assigned = category
+    } else if let current = expense.category {
+      assigned = current
+    } else {
+      assigned = try otherCategory()
+    }
+    expense.amountCents = amountCents
+    expense.note = note
+    expense.date = date
+    expense.category = assigned
+  }
+
   /// Fetch the seed marker directly; normal mutations never scan or repair all expenses.
   private func otherCategory() throws -> Category {
     var descriptor = FetchDescriptor<Category>(predicate: #Predicate { $0.isSystem })

@@ -18,6 +18,7 @@ struct ContentView: View {
   @State private var showsSetup: Bool
 
   @State private var showsQuickLog = false
+  @State private var showsHistory: Bool
   @State private var undo: ExpenseUndo?
   @State private var saveFeedback = 0
   @State private var errorMessage: String?
@@ -30,6 +31,7 @@ struct ContentView: View {
     self.budget = budget
     self.screenshotScenario = screenshotScenario
     _showsSetup = State(initialValue: showsSetup)
+    _showsHistory = State(initialValue: screenshotScenario?.isHistory == true)
   }
 
   var body: some View {
@@ -118,12 +120,22 @@ struct ContentView: View {
       .navigationTitle("Runway")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("History", systemImage: "clock.arrow.circlepath") {
+            showsHistory = true
+          }
+          .frame(minWidth: 44, minHeight: 44)
+          .accessibilityHint("Shows past days and periods, where you can edit expenses.")
+        }
         ToolbarItem(placement: .primaryAction) {
           Button("Settings", systemImage: "gearshape") {
             showsSetup = true
           }
           .frame(minWidth: 44, minHeight: 44)
         }
+      }
+      .navigationDestination(isPresented: $showsHistory) {
+        HistoryView(budget: budget, now: displayNow, screenshotScenario: screenshotScenario)
       }
       .sensoryFeedback(.success, trigger: saveFeedback)
       .onChange(of: scenePhase) { _, phase in

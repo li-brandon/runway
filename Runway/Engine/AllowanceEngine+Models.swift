@@ -34,6 +34,16 @@ extension ExpenseSnapshot {
   }
 }
 
+extension HistoryExpense where CategoryID == PersistentIdentifier? {
+  init(_ expense: Expense) {
+    self.init(
+      amountCents: expense.amountCents,
+      date: expense.date,
+      categoryID: expense.category?.persistentModelID
+    )
+  }
+}
+
 extension Budget {
   /// What each period leaves for day-to-day spending: spendable − fixed bills − savings. Can be
   /// zero or negative.

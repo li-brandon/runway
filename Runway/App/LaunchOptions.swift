@@ -7,12 +7,14 @@ import SwiftData
 /// - `-RunwayScreenshotScenario <name>` seeds the store and opens a sample screen (see
 ///   `ScreenshotScenario`). It's ignored without `-RunwayInMemoryStore`, so sample data can never
 ///   be written to the real store.
-/// - `-RunwayScreenshotScrollTo spendable` scrolls setup to its amount fields. It is also ignored
-///   without `-RunwayInMemoryStore`.
+/// - `-RunwayScreenshotScrollTo spendable` scrolls setup to its amount fields, and
+///   `-RunwayScreenshotScrollTo categories` scrolls History to its category totals. Both are
+///   ignored without `-RunwayInMemoryStore`.
 struct LaunchOptions: Equatable, Sendable {
   static let inMemoryStoreArgument = "-RunwayInMemoryStore"
   static let screenshotScenarioArgument = "-RunwayScreenshotScenario"
   static let screenshotScrollToArgument = "-RunwayScreenshotScrollTo"
+  static let screenshotScrollTargets: Set<String> = ["spendable", "categories"]
 
   var usesInMemoryStore = false
   var screenshotScenario: ScreenshotScenario?
@@ -28,7 +30,7 @@ struct LaunchOptions: Equatable, Sendable {
     }
     if let index = arguments.firstIndex(of: Self.screenshotScrollToArgument),
       index + 1 < arguments.count,
-      arguments[index + 1] == "spendable"
+      Self.screenshotScrollTargets.contains(arguments[index + 1])
     {
       screenshotScrollTo = arguments[index + 1]
     }
@@ -57,13 +59,33 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case todayZero = "today-zero"
   case todayNoBudget = "today-no-budget"
 
+  /// History of the current period, scrolled to its days.
+  case historyList = "history-list"
+  /// History of the previous, completed period: totals, carryover, and categories.
+  case historyPeriodSummary = "history-period-summary"
+  /// History with the edit sheet open on yesterday's latest expense.
+  case historyEdit = "history-edit"
+
+  var isHistory: Bool {
+    switch self {
+    case .historyList, .historyPeriodSummary, .historyEdit: true
+    default: false
+    }
+  }
+
   var todayDate: Date? {
     switch self {
     case .todayNormal, .todayNear, .todayOver, .todayZero, .todayNoBudget:
-      Calendar.current.date(from: DateComponents(year: 2026, month: 6, day: 10, hour: 12))
+      Self.fixedToday
+    case .historyList, .historyPeriodSummary, .historyEdit:
+      Self.fixedToday
     default:
       nil
     }
+  }
+
+  private static var fixedToday: Date? {
+    Calendar.current.date(from: DateComponents(year: 2026, month: 6, day: 10, hour: 12))
   }
 
   /// Inserts and saves sample data. A sample budget starts three days before `now`.
@@ -115,6 +137,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     case .todayZero:
       budget = Budget(periodStart: periodStart, spendablePerPeriodCents: 0)
       bills = []
+    case .historyList, .historyPeriodSummary, .historyEdit:
+      return try seedHistory(into: context, now: now, calendar: calendar)
     case .setupWarning:
       // 1,200 - (1,100 + 250) - 100 = -250 available.
       budget = Budget(
@@ -161,6 +185,58 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
         category: categories.first { $0.name == "Shopping" },
         now: now
       )
+    }
+    try context.save()
+    return budget
+  }
+
+  /// Two biweekly periods of everyday spending with $1,100 available and carryover on: a
+  /// completed one starting 17 days before today, with some days over, and the current one
+  /// through this morning. Includes a refund.
+  private func seedHistory(
+    into context: ModelContext,
+    now: Date,
+    calendar: Calendar
+  ) throws -> Budget {
+    let today = calendar.startOfDay(for: now)
+    let start = calendar.date(byAdding: .day, value: -17, to: today) ?? today
+    let budget = Budget(
+      periodLength: .biweekly,
+      periodStart: start,
+      spendablePerPeriodCents: 110_000
+    )
+    context.insert(budget)
+    let service = CategoryService(context: context)
+    try service.seed()
+    let categories = try service.categories()
+    let samples: [(note: String, category: String, cents: Int)] = [
+      ("Coffee", "Food", 475),
+      ("Weekly groceries", "Groceries", 6_240),
+      ("Bus fare", "Transport", 275),
+      ("Lunch", "Food", 1_380),
+      ("Movie night", "Entertainment", 1_600),
+      ("Running shoes", "Shopping", 8_900),
+      ("Dinner out", "Food", 4_250),
+      ("Gas", "Transport", 4_800),
+      ("Phone case", "Shopping", 2_100),
+      ("Returned shirt", "Shopping", -2_500),
+      ("Farmers market", "Groceries", 2_350),
+    ]
+    for offset in 0...17 {
+      let day = calendar.date(byAdding: .day, value: offset, to: start) ?? start
+      // Two expenses a day, morning and evening; today has two morning ones before `now`.
+      let hours = offset == 17 ? [8, 10] : [9, 19]
+      for (slot, hour) in hours.enumerated() {
+        let sample = samples[(offset * 2 + slot) % samples.count]
+        let date = calendar.date(byAdding: .hour, value: hour, to: day) ?? day
+        try service.createExpense(
+          amountCents: sample.cents,
+          note: sample.note,
+          date: date,
+          category: categories.first { $0.name == sample.category },
+          now: date
+        )
+      }
     }
     try context.save()
     return budget
