@@ -112,7 +112,7 @@ struct PrivacyDataTests {
       try context.fetchCount(FetchDescriptor<Budget>()),
       try context.fetchCount(FetchDescriptor<FixedBill>()),
       try context.fetchCount(FetchDescriptor<Expense>()),
-      try context.fetchCount(FetchDescriptor<Category>()),
+      try context.fetchCount(FetchDescriptor<Runway.Category>()),
       try context.fetchCount(FetchDescriptor<CarryoverChange>()),
       try context.fetchCount(FetchDescriptor<AmountChange>()),
       try context.fetchCount(FetchDescriptor<ScheduleChange>()),
@@ -175,7 +175,7 @@ struct PrivacyDataTests {
 
     let loaded = ModelContext(context.container)
     #expect(try DataExport.snapshot(of: loaded, now: snapshot.exportedAt) == snapshot)
-    let names = try loaded.fetch(FetchDescriptor<Category>()).map(\.name)
+    let names = try loaded.fetch(FetchDescriptor<Runway.Category>()).map(\.name)
     #expect(!names.contains("Old category"))
   }
 
@@ -206,7 +206,7 @@ struct PrivacyDataTests {
     try DataImport.apply(try DataImport.validate(data), to: context)
     #expect(try context.fetchCount(FetchDescriptor<Budget>()) == 0)
     #expect(try context.fetchCount(FetchDescriptor<Expense>()) == 0)
-    #expect(try context.fetchCount(FetchDescriptor<Category>()) == 7)
+    #expect(try context.fetchCount(FetchDescriptor<Runway.Category>()) == 7)
   }
 
   @Test("Every screenshot scenario's sample data exports a valid backup")
