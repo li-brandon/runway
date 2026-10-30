@@ -128,6 +128,10 @@ struct AppLaunchTests {
         "today-over",
         "today-zero",
         "today-no-budget",
+        "spending-day",
+        "spending-week",
+        "spending-month",
+        "spending-month-rolling",
         "history-list",
         "history-period-summary",
         "history-edit",
@@ -209,7 +213,12 @@ struct AppLaunchTests {
       #expect(try context.fetchCount(FetchDescriptor<Budget>()) == (budget == nil ? 0 : 1))
       if let budget {
         let start = scenario.isHistory ? calendar.date(2026, 5, 24) : calendar.date(2026, 6, 7)
-        #expect(budget.periodStart == start)
+        if scenario.spendingSelection != nil {
+          let spendingStart = calendar.date(byAdding: .day, value: -69, to: now)!
+          #expect(budget.periodStart == calendar.startOfDay(for: spendingStart))
+        } else {
+          #expect(budget.periodStart == start)
+        }
         let draft = BudgetDraft(budget: budget, locale: Money.fixedLocale)
         #expect(draft.canSave)
         available[scenario] = draft.availableCents
@@ -227,6 +236,10 @@ struct AppLaunchTests {
         .todayNear: 110_000,
         .todayOver: 110_000,
         .todayZero: 0,
+        .spendingDay: 70_000,
+        .spendingWeek: 70_000,
+        .spendingMonth: 70_000,
+        .spendingMonthRolling: 70_000,
         .historyList: 110_000,
         .historyPeriodSummary: 110_000,
         .historyEdit: 110_000,
