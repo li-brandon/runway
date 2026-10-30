@@ -50,8 +50,9 @@ extension RunwaySchemaV1 {
     /// The current carryover setting. Change it with `setCarryover(_:now:calendar:)` so the change
     /// is recorded in `carryoverChanges` and only applies from the next period.
     var carryoverEnabled: Bool = true
-    /// The time zone whose local midnights the day-only dates (`periodStart` and every change's
-    /// `effectiveAt`) are stored in. Empty until first set; see `adoptTimeZone(of:)`.
+    /// The time zone whose local midnights the day-only dates (`periodStart`, every change's
+    /// `effectiveAt`, and the dates of extra money and bill marks) are stored in. Empty until
+    /// first set; see `adoptTimeZone(of:)`.
     var timeZoneIdentifier: String = ""
 
     @Relationship(deleteRule: .cascade, inverse: \FixedBill.budget)

@@ -199,6 +199,80 @@ struct CatchUpAndTimeZoneTests {
     #expect(budget.scheduleChanges.first?.effectiveAt == tokyo.date(2026, 6, 3))
   }
 
+  @Test("A UTC-10 to UTC+14 move keeps extra money, bill marks, and period totals in place")
+  func largeJumpKeepsExtraMoneyAndBillMarks() throws {
+    let honolulu = Calendar.gregorian("Pacific/Honolulu")
+    let kiritimati = Calendar.gregorian("Pacific/Kiritimati")
+    let context = ModelContext(container)
+    // $700 available a week: $1,000 minus a $300 Rent bill.
+    let budget = Budget(
+      periodLength: .weekly,
+      periodStart: honolulu.date(2026, 6, 1),
+      spendablePerPeriodCents: 100_000,
+      timeZoneIdentifier: "Pacific/Honolulu"
+    )
+    context.insert(budget)
+    let rent = FixedBill(name: "Rent", amountCents: 30_000, dueDay: 1)
+    context.insert(rent)
+    budget.fixedBills.append(rent)
+
+    // Late on the period's last day. Unmoved, midnight in Honolulu reads as the next day, and so
+    // the next period, on Kiritimati.
+    let lateSunday = honolulu.date(2026, 6, 7, 23, 30)
+    let gift = budget.addExtraMoney(
+      cents: 15_000,
+      note: "Gift",
+      now: lateSunday,
+      calendar: honolulu
+    )
+    budget.setStatus(.skipped, of: rent, now: lateSunday, calendar: honolulu)
+    try context.save()
+    let mark = try #require(budget.billPayments.first)
+    #expect(gift.date == honolulu.date(2026, 6, 7))
+    #expect(mark.date == honolulu.date(2026, 6, 7))
+
+    // No expenses: they keep their instants, so a move can shift them to another local day.
+    // Remaining, allowance, and History's remaining per period (newest first), late on Sunday and
+    // on Monday morning, at the same wall-clock times in either zone.
+    func figures(_ calendar: Calendar) -> [Int] {
+      let snapshot = BudgetSnapshot(budget)
+      let times = [calendar.date(2026, 6, 7, 23, 30), calendar.date(2026, 6, 8, 9)]
+      return times.flatMap { now -> [Int] in
+        let result = AllowanceEngine(calendar: calendar).currentAllowance(
+          budget: snapshot,
+          expenses: [],
+          now: now
+        )
+        let history = HistoryEngine(calendar: calendar).periods(
+          budget: snapshot,
+          expenses: [HistoryExpense<String>](),
+          now: now
+        )
+        return [result.remainingPeriodCents, result.allowanceTodayCents]
+          + history.map(\.remainingCents)
+      }
+    }
+
+    // Sunday: 700 + 150 + 300 skipped, 1 day left. Monday: 700 + 1,150 carried in, over 7 days.
+    let before = figures(honolulu)
+    #expect(before == [115_000, 115_000, 115_000, 185_000, 26_428, 185_000, 115_000])
+
+    #expect(budget.adoptTimeZone(of: kiritimati))
+    try context.save()
+
+    #expect(gift.date == kiritimati.date(2026, 6, 7))
+    #expect(mark.date == kiritimati.date(2026, 6, 7))
+    #expect(figures(kiritimati) == before)
+
+    let period = AllowanceEngine(calendar: kiritimati).period(
+      containing: kiritimati.date(2026, 6, 7, 23, 30),
+      of: BudgetSnapshot(budget)
+    )
+    #expect(period.start == kiritimati.date(2026, 6, 1))
+    #expect(budget.extraMoneyItems(in: period).map(\.note) == ["Gift"])
+    #expect(budget.status(of: rent, in: period) == .skipped)
+  }
+
   @Test("A budget without a recorded time zone just records the current one")
   func adoptFirstTimeZone() throws {
     let budget = Budget(periodStart: chicago.date(2026, 6, 1), spendablePerPeriodCents: 70_000)

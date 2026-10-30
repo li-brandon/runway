@@ -178,8 +178,12 @@ struct PeriodMoneyView: View {
         }
       }
       .foregroundStyle(.primary)
+      .frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(Rectangle())
     }
+    // Plain so the row keeps primary and secondary text rather than the accent tint.
+    .menuStyle(.button)
+    .buttonStyle(.plain)
     .accessibilityHint("Marks the bill paid or skipped for this period.")
   }
 

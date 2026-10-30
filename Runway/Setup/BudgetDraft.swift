@@ -201,7 +201,7 @@ struct BudgetDraft: Equatable, Sendable {
       timeZoneIdentifier: calendar.timeZone.identifier
     )
     context.insert(budget)
-    apply(values.bills, to: budget, currentPeriod: nil, now: nil)
+    apply(values.bills, to: budget, currentPeriod: nil, now: nil, calendar: calendar)
     return budget
   }
 
@@ -228,7 +228,7 @@ struct BudgetDraft: Equatable, Sendable {
     budget.setCarryover(carryoverEnabled, now: now, calendar: calendar)
     let engine = AllowanceEngine(calendar: calendar)
     let current = engine.period(containing: now, of: BudgetSnapshot(budget))
-    apply(values.bills, to: budget, currentPeriod: current, now: now)
+    apply(values.bills, to: budget, currentPeriod: current, now: now, calendar: calendar)
     budget.recordAmountChange(from: previousAvailableCents, now: now, calendar: calendar)
     return true
   }
@@ -317,7 +317,8 @@ struct BudgetDraft: Equatable, Sendable {
     _ parsedBills: [ParsedBill],
     to budget: Budget,
     currentPeriod: BudgetPeriod?,
-    now: Date?
+    now: Date?,
+    calendar: Calendar
   ) {
     let keptIDs = Set(parsedBills.compactMap { $0.bill.modelID })
     for bill in budget.fixedBills where !keptIDs.contains(bill.persistentModelID) {
@@ -326,7 +327,8 @@ struct BudgetDraft: Equatable, Sendable {
           of: bill,
           releasedCents: bill.amountCents,
           in: currentPeriod,
-          now: now
+          now: now,
+          calendar: calendar
         )
       }
       budget.fixedBills.removeAll { $0 === bill }
@@ -343,7 +345,8 @@ struct BudgetDraft: Equatable, Sendable {
             of: existing,
             releasedCents: releasedCents,
             in: currentPeriod,
-            now: now
+            now: now,
+            calendar: calendar
           )
         }
         existing.name = name
