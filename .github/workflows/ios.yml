@@ -2,12 +2,14 @@ name: iOS
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # One run per PR (or per ref on push); a newer push cancels the older PR run.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -23,8 +25,48 @@ env:
   XCODE_VERSION: '27'
 
 jobs:
-  build-and-test:
-    name: Build and test
+  # Cheap Linux job: decides whether the macOS job needs to run at all.
+  # Draft PRs run nothing; docs-only changes (*.md, docs/**) skip the macOS build.
+  changes:
+    name: Detect changes
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - name: Diff against base
+        id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        # Fail safe: any error, or anything but a confirmed docs-only diff, means code=true.
+        shell: bash {0}
+        run: |
+          code=true
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$BASE_SHA" ] \
+            && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            if CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)" && [ -n "$CHANGED" ]; then
+              echo "$CHANGED"
+              if ! echo "$CHANGED" | grep -qvE '(\.md$|^docs/)'; then
+                code=false
+              fi
+            fi
+          fi
+          echo "code=$code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+  # Heavy macOS job. Runs unless detection explicitly said docs-only (so a failed or
+  # missing detection still builds), and never for draft PRs or cancelled runs.
+  build:
+    name: iOS build
+    needs: changes
+    if: >-
+      ${{ !cancelled() && needs.changes.outputs.code != 'false'
+      && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: xcode-27  # public-preview macOS 27 image with Xcode 27 and iOS simulators
     timeout-minutes: 45
 
@@ -345,3 +387,34 @@ jobs:
           path: ${{ env.RESULTS_DIR }}/*.xcresult
           if-no-files-found: ignore
           retention-days: 7
+
+  # Required check. Passes only if the iOS build succeeded, or if detection succeeded,
+  # confirmed docs-only, and the build was skipped. Anything else (detection failed or
+  # cancelled, build failed/cancelled/skipped unexpectedly) fails.
+  # Draft PRs: skipped (drafts can't merge; marking ready triggers a full run).
+  gate:
+    name: Build and test
+    needs: [changes, build]
+    if: >-
+      ${{ always()
+      && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check results
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          echo "changes=$CHANGES code=$CODE build=$BUILD"
+          if [ "$BUILD" = "success" ]; then
+            echo "iOS build passed."
+            exit 0
+          fi
+          if [ "$CHANGES" = "success" ] && [ "$CODE" = "false" ] && [ "$BUILD" = "skipped" ]; then
+            echo "Docs-only change confirmed; iOS build skipped."
+            exit 0
+          fi
+          echo "::error::iOS build did not succeed and the change is not confirmed docs-only."
+          exit 1
