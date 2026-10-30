@@ -252,7 +252,7 @@ struct ContentView: View {
         ForEach(SpendingView.allCases, id: \.self) { view in
           Text(view.rawValue)
             .lineLimit(1)
-            .minimumScaleFactor(0.5)
+            .minimumScaleFactor(0.7)
             .tag(view)
         }
       }
@@ -267,17 +267,15 @@ struct ContentView: View {
         .pickerStyle(.menu)
         .accessibilityHint("Rolling uses the last 7 or 30 days, including today.")
       }
-      Text("Spent this \(spendingView.rawValue.lowercased())")
+      Text(spendingView.heading(mode: spendingMode))
         .font(.headline)
       Text(Money.format(cents: summary.spentCents))
         .font(.largeTitle.bold())
-        .lineLimit(1)
-        .minimumScaleFactor(0.1)
+        .lineLimit(2)
+        .minimumScaleFactor(0.7)
       if spendingView != .day {
         Text("Budget for these days: \(Money.format(cents: summary.budgetCents))")
           .font(.footnote)
-          .lineLimit(1)
-          .minimumScaleFactor(0.1)
         let remaining = summary.budgetCents - summary.spentCents
         let status = remaining < 0 ? "over" : "left"
         Text("\(Money.format(cents: abs(remaining))) \(status)")
