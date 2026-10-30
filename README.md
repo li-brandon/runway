@@ -152,7 +152,7 @@ period's summary, carryover, and categories), and `history-edit` (the edit sheet
 latest expense). `-RunwayScreenshotScrollTo categories` scrolls History to its category totals,
 `today` scrolls Today to what's left to spend, and `bills` scrolls This Period to its bills.
 Privacy scenarios: `privacy-settings` (Privacy & Data with the lock on), `privacy-locked` (the lock
-screen), `privacy-import-confirm`, and `privacy-reset-confirm` (their confirm dialogs). In-memory
+screen), `privacy-import-confirm`, and `privacy-reset-confirm` (their confirm alerts). In-memory
 launches keep the lock setting in memory and never show a Face ID prompt.
 The undo scenario delays showing its five-second banner until launch has settled for CI capture.
 
@@ -240,7 +240,8 @@ macOS runner. It:
    to 9:41, launches each screenshot scenario (see [Launch arguments](#launch-arguments)), and
    uploads `screenshots/<ticket>-<scenario>.png` as the `screenshots` artifact: setup uses 430,
    categories and category-picker use 440, quick logging uses 432, the four Today scenarios
-   use 433, the three History scenarios use 434, and the privacy scenarios use 437. A failed
+   use 433, the three History scenarios use 434, and the privacy scenarios use 437, except the
+   import and reset confirms, which use 468. A failed
    capture fails the job. Every scenario is captured at default and largest accessibility text sizes. Setup
    scenarios also get a second accessibility capture scrolled to the amount fields, and
    `history-period-summary` one scrolled to its categories.

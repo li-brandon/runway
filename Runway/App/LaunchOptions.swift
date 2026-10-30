@@ -109,9 +109,9 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case privacySettings = "privacy-settings"
   /// The lock screen over Today. Its authenticator never shows a system prompt.
   case privacyLocked = "privacy-locked"
-  /// Privacy & Data with the import confirm dialog open on a backup of the sample data.
+  /// Privacy & Data with the import confirm alert open on a backup of the sample data.
   case privacyImportConfirm = "privacy-import-confirm"
-  /// Privacy & Data with the reset confirm dialog open.
+  /// Privacy & Data with the reset confirm alert open.
   case privacyResetConfirm = "privacy-reset-confirm"
 
   var isPrivacy: Bool {

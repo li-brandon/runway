@@ -46,6 +46,17 @@ struct ValidatedImport: Equatable, Sendable {
   }
 }
 
+/// The checked backup waiting on the import alert. Any dismissal drops it, so it's only applied
+/// if the alert's confirm button applies it.
+struct ImportConfirmation: Equatable, Sendable {
+  var pending: ValidatedImport?
+
+  var isPresented: Bool {
+    get { pending != nil }
+    set { if !newValue { pending = nil } }
+  }
+}
+
 /// Reads a JSON backup in two steps: `validate` touches no data, and `apply` replaces the store.
 enum DataImport {
   /// Far above any real amount, and low enough that summing a whole store can't overflow `Int`,
@@ -152,16 +163,24 @@ enum DataImport {
     return ValidatedImport(snapshot: snapshot)
   }
 
-  /// Replaces everything in `context` in a single save. If anything fails, the context rolls back
-  /// and the store keeps its existing data.
-  static func apply(_ validated: ValidatedImport, to context: ModelContext) throws {
-    do {
-      try DataReset.deleteAll(in: context)
-      try insert(validated.snapshot, into: context)
-      try context.save()
-    } catch {
-      context.rollback()
-      throw error
+  /// Replaces everything in `context`'s store in a single save. The work is staged in a separate
+  /// scratch context on the same container, so a failure just discards that context and neither
+  /// the store nor `context` changes. Rolling back staged deletes and inserts in place traps in
+  /// SwiftData, so there is deliberately no rollback here. `save` replaces the scratch context's
+  /// save so tests can fail it.
+  static func apply(
+    _ validated: ValidatedImport,
+    to context: ModelContext,
+    save: ((ModelContext) throws -> Void)? = nil
+  ) throws {
+    let scratch = ModelContext(context.container)
+    scratch.autosaveEnabled = false
+    try DataReset.deleteAll(in: scratch)
+    try insert(validated.snapshot, into: scratch)
+    if let save {
+      try save(scratch)
+    } else {
+      try scratch.save()
     }
   }
 
