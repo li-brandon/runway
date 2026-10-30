@@ -293,12 +293,10 @@ struct HistoryView: View {
       }
     } footer: {
       Text("Dated before your budget started, so they don't count toward any period.")
-        .id(Self.beforeBudgetFooterID)
     }
   }
 
   private static let beforeBudgetID = "before-budget"
-  private static let beforeBudgetFooterID = "before-budget-footer"
 
   private func expenseRow(_ expense: Expense, showsDay: Bool = false) -> some View {
     Button {
@@ -450,16 +448,19 @@ struct HistoryView: View {
     let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
     if options.screenshotScrollTo == "categories" {
       proxy.scrollTo("categories", anchor: .top)
-    } else if options.screenshotScrollTo == "before-budget", !page.beforeBudget.isEmpty {
-      // Pin the footer to the bottom so it shows in full even when large text fills the screen,
-      // then repeat once the list's lazily built rows have their real heights.
-      proxy.scrollTo(Self.beforeBudgetFooterID, anchor: .bottom)
+    } else if options.screenshotScrollTo == "before-budget",
+      let last = page.beforeBudget.last
+    {
+      // The list's last row at the top, so the section's footer shows below it even when large
+      // text fills the screen. Section footers aren't scroll targets, so scroll to the row, then
+      // repeat once the lazily built rows above it have their real heights.
+      proxy.scrollTo(last.persistentModelID, anchor: .top)
       do {
         try await Task.sleep(for: .milliseconds(800))
       } catch {
         return
       }
-      proxy.scrollTo(Self.beforeBudgetFooterID, anchor: .bottom)
+      proxy.scrollTo(last.persistentModelID, anchor: .top)
     } else if screenshotScenario == .historyBeforeBudget {
       proxy.scrollTo(Self.beforeBudgetID, anchor: .top)
     } else if screenshotScenario == .historyList, let first = days.first {
