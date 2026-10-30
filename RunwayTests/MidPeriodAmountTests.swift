@@ -232,14 +232,14 @@ struct MidPeriodAmountTests {
     #expect(budget.status(of: rent, in: period) == .skipped)
     #expect(try context.fetchCount(FetchDescriptor<BillPayment>()) == 3)
     #expect(current().remainingPeriodCents == 100_000)
-    // 1,000 / 5 from today. Monday and Tuesday keep 700 / 7.
+    // 1,000 / 5 from today. With no spending, Monday keeps 700 / 7 and Tuesday 700 / 6.
     #expect(current().allowanceTodayCents == 20_000)
     let days = HistoryEngine(calendar: calendar).periods(
       budget: BudgetSnapshot(budget),
       expenses: [HistoryExpense<String>](),
       now: today
     )[0].days
-    #expect(days.reversed().map(\.allowanceCents) == [10_000, 10_000, 20_000])
+    #expect(days.reversed().map(\.allowanceCents) == [10_000, 11_666, 20_000])
 
     // The skipped money carries out like any leftover, and the next period sets Rent aside.
     let next = allowance(budget, now: calendar.date(2026, 6, 8, 9), expenses: [])
