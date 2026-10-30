@@ -252,3 +252,5 @@ Third-party actions are pinned to commit SHAs.
 Everything you enter stays on your device. Runway has no accounts, analytics, or network code, and
 it doesn't sync. The SwiftData store is local and CloudKit is explicitly turned off. If you delete
 the app, your data is deleted with it.
+
+See [docs/branch-protection.md](docs/branch-protection.md) for the rules on `main`.
