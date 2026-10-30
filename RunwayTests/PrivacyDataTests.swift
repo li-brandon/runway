@@ -194,6 +194,84 @@ struct PrivacyDataTests {
     #expect(try counts(in: context) != before)
   }
 
+  @Test("A failed import save rolls back and leaves existing data unchanged")
+  func failedSaveRollsBack() throws {
+    struct SaveFailure: Error {}
+
+    let context = try makeContext()
+    try seedEverything(into: context)
+    let now = calendar.date(2026, 6, 10)
+    let before = try DataExport.snapshot(of: context, now: now)
+    let countsBefore = try counts(in: context)
+
+    // Differs from the store, so a rollback that kept the import would show up below.
+    let empty = try makeContext()
+    try CategoryService(context: empty).seed()
+    try empty.save()
+    let validated = try DataImport.validate(try DataExport.snapshot(of: empty))
+
+    var saveAttempts = 0
+    #expect(throws: SaveFailure.self) {
+      try DataImport.apply(validated, to: context) {
+        saveAttempts += 1
+        // Proves the failure comes after the replacement was staged, with something to undo.
+        #expect(!context.deletedModelsArray.isEmpty)
+        #expect(!context.insertedModelsArray.isEmpty)
+        throw SaveFailure()
+      }
+    }
+    #expect(saveAttempts == 1)
+    #expect(!context.hasChanges)
+
+    // Both the failed context and a fresh read of the store see the original data.
+    for loaded in [context, ModelContext(context.container)] {
+      #expect(try counts(in: loaded) == countsBefore)
+      #expect(try DataExport.snapshot(of: loaded, now: now) == before)
+
+      let budget = try #require(try loaded.fetch(FetchDescriptor<Budget>()).first)
+      #expect(budget.spendablePerPeriodCents == 240_000)
+      #expect(budget.fixedBills.map(\.name).sorted() == ["Phone", "Rent"])
+      let expenses = try loaded.fetch(FetchDescriptor<Expense>(sortBy: [SortDescriptor(\.date)]))
+      #expect(expenses.map(\.amountCents) == [1_250, -500])
+      #expect(expenses[0].category?.name == "Food")
+    }
+  }
+
+  @Test("Cancelling the import confirmation drops the backup without applying it")
+  func cancelImportConfirmation() throws {
+    let context = try makeContext()
+    try seedEverything(into: context)
+    let now = calendar.date(2026, 6, 10)
+    let before = try DataExport.snapshot(of: context, now: now)
+
+    var confirmation = ImportConfirmation()
+    #expect(!confirmation.isPresented)
+    confirmation.pending = try DataImport.validate(try validSnapshot())
+    #expect(confirmation.isPresented)
+
+    // What the alert does through its binding when Cancel is tapped.
+    confirmation.isPresented = false
+
+    #expect(confirmation.pending == nil)
+    #expect(!context.hasChanges)
+    #expect(try DataExport.snapshot(of: context, now: now) == before)
+  }
+
+  @MainActor
+  @Test("The data replace action compares by id and still runs its closure")
+  func dataReplaceAction() {
+    var calls = 0
+    let id = UUID()
+    let action = DataReplaceAction(id: id) { calls += 1 }
+
+    #expect(action == DataReplaceAction(id: id) {})
+    #expect(action != DataReplaceAction(id: UUID()) {})
+    #expect(DataReplaceAction.doNothing == .doNothing)
+
+    action()
+    #expect(calls == 1)
+  }
+
   @Test("A backup of an empty store with only categories imports and clears the budget")
   func importEmptyBackup() throws {
     let empty = try makeContext()
@@ -397,6 +475,58 @@ struct PrivacyDataTests {
     #expect(DataExport.csvField("a\rb") == "\"a\rb\"")
     // `\r\n` is a single Swift `Character`, so this catches a check for "\n" as a Character.
     #expect(DataExport.csvField("a\r\nb") == "\"a\r\nb\"")
+  }
+
+  @Test(
+    "CSV text starting with a formula character gets a leading apostrophe",
+    arguments: ["=", "+", "-", "@", "\t", "\r"]
+  )
+  func csvFormulaEscaping(lead: String) {
+    let text = lead + "SUM(A1)"
+    #expect(DataExport.csvText(text) == "'" + text)
+  }
+
+  @Test("CSV text escaping leaves other text alone and runs before quoting")
+  func csvTextUntouched() {
+    #expect(DataExport.csvText("") == "")
+    #expect(DataExport.csvText("Lunch") == "Lunch")
+    #expect(DataExport.csvText("Lunch = $5 - tip") == "Lunch = $5 - tip")
+    #expect(DataExport.csvText("'quoted") == "'quoted")
+    // `\r\n` is a single Swift `Character`, so this catches a check on the first Character.
+    #expect(DataExport.csvText("\r\nnote") == "'\r\nnote")
+    #expect(DataExport.csvField(DataExport.csvText("=A1,\"B\"")) == "\"'=A1,\"\"B\"\"\"")
+  }
+
+  @Test("The CSV escapes notes and category names but not amounts or dates")
+  func csvDocumentEscaping() throws {
+    let context = try makeContext()
+    let service = CategoryService(context: context)
+    try service.seed()
+    let food = try #require(try service.categories().first { $0.name == "Food" })
+    food.name = "@Food"
+    try service.createExpense(
+      amountCents: -1_250,
+      note: "=HYPERLINK(\"http://example.com\")",
+      date: calendar.date(2026, 6, 2, 12),
+      category: food,
+      now: calendar.date(2026, 6, 2, 13)
+    )
+    try service.createExpense(
+      amountCents: 500,
+      note: "Plain note",
+      date: calendar.date(2026, 6, 3, 9),
+      category: food,
+      now: calendar.date(2026, 6, 3, 10)
+    )
+    try context.save()
+
+    let csv = try DataExport.expensesCSV(in: context, timeZone: calendar.timeZone)
+    #expect(
+      csv == "date,amount,category,note,created_at\r\n"
+        + "2026-06-02T12:00:00-05:00,-12.50,'@Food,"
+        + "\"'=HYPERLINK(\"\"http://example.com\"\")\",2026-06-02T13:00:00-05:00\r\n"
+        + "2026-06-03T09:00:00-05:00,5.00,'@Food,Plain note,2026-06-03T10:00:00-05:00\r\n"
+    )
   }
 
   @Test("CSV amounts are plain dollars built from integer cents")

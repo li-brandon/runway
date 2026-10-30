@@ -46,6 +46,17 @@ struct ValidatedImport: Equatable, Sendable {
   }
 }
 
+/// The checked backup waiting on the import alert. Any dismissal drops it, so it's only applied
+/// if the alert's confirm button applies it.
+struct ImportConfirmation: Equatable, Sendable {
+  var pending: ValidatedImport?
+
+  var isPresented: Bool {
+    get { pending != nil }
+    set { if !newValue { pending = nil } }
+  }
+}
+
 /// Reads a JSON backup in two steps: `validate` touches no data, and `apply` replaces the store.
 enum DataImport {
   /// Far above any real amount, and low enough that summing a whole store can't overflow `Int`,
@@ -153,12 +164,16 @@ enum DataImport {
   }
 
   /// Replaces everything in `context` in a single save. If anything fails, the context rolls back
-  /// and the store keeps its existing data.
-  static func apply(_ validated: ValidatedImport, to context: ModelContext) throws {
+  /// and the store keeps its existing data. `save` replaces `context.save` so tests can fail it.
+  static func apply(
+    _ validated: ValidatedImport,
+    to context: ModelContext,
+    save: (() throws -> Void)? = nil
+  ) throws {
     do {
       try DataReset.deleteAll(in: context)
       try insert(validated.snapshot, into: context)
-      try context.save()
+      try (save ?? context.save)()
     } catch {
       context.rollback()
       throw error

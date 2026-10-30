@@ -1,3 +1,4 @@
+import Foundation
 import SwiftData
 import SwiftUI
 
@@ -11,6 +12,9 @@ struct RootView: View {
   /// Bumped after an import or reset to rebuild every view, closing any open sheets. Views may
   /// hold models that no longer exist, and reading those can crash.
   @State private var dataGeneration = 0
+  /// Stays the same across updates, so `dataDidReplace` compares equal and readers don't update.
+  /// An older copy of the action still works, since it writes to the same `@State` storage.
+  @State private var dataReplaceActionID = UUID()
 
   // Explicit because the private `@Query` makes the memberwise initializer private.
   init(screenshotScenario: ScreenshotScenario? = nil) {
@@ -40,7 +44,10 @@ struct RootView: View {
       }
     }
     .id(dataGeneration)
-    .environment(\.dataDidReplace) { dataGeneration += 1 }
+    .environment(
+      \.dataDidReplace,
+      DataReplaceAction(id: dataReplaceActionID) { dataGeneration += 1 }
+    )
   }
 }
 

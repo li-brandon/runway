@@ -252,14 +252,22 @@ enum DataExport {
       [
         formatter.string(from: expense.date),
         csvAmount(cents: expense.amountCents),
-        expense.category?.name ?? "",
-        expense.note,
+        csvText(expense.category?.name ?? ""),
+        csvText(expense.note),
         formatter.string(from: expense.createdAt),
       ]
       .map(csvField)
       .joined(separator: ",")
     }
     return ([csvHeader] + rows).map { $0 + "\r\n" }.joined()
+  }
+
+  /// Prefixes free text with an apostrophe if a spreadsheet would run it as a formula. For text
+  /// only: amounts and dates are app-generated, and a refund's `-12.50` has to stay a number.
+  /// Checks scalars because `\r\n` is one `Character`, which wouldn't equal `\r`.
+  static func csvText(_ text: String) -> String {
+    guard let first = text.unicodeScalars.first else { return text }
+    return "=+-@\t\r".unicodeScalars.contains(first) ? "'" + text : text
   }
 
   /// Quotes a field holding a quote, comma, or line break, and doubles its quotes. Checks scalars

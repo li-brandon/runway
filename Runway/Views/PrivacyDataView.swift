@@ -3,10 +3,29 @@ import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// A closure that compares by `id`, so storing it in the environment doesn't invalidate readers
+/// every time the view that made it updates. Share an `id` only between closures that do the same
+/// thing.
+struct DataReplaceAction: Equatable, Sendable {
+  /// The environment's default. Shared, so it always compares equal to itself.
+  static let doNothing = DataReplaceAction(id: UUID()) {}
+
+  let id: UUID
+  let action: @MainActor () -> Void
+
+  @MainActor func callAsFunction() {
+    action()
+  }
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.id == rhs.id
+  }
+}
+
 extension EnvironmentValues {
   /// Call straight after replacing or erasing the store, in the same update. The root rebuilds its
   /// views, so none of them, including this settings screen, read a deleted model.
-  @Entry var dataDidReplace: @MainActor () -> Void = {}
+  @Entry var dataDidReplace: DataReplaceAction = .doNothing
 }
 
 /// The app lock, and exporting, importing, and erasing data. The logic lives in `Runway/Privacy`.
@@ -20,8 +39,7 @@ struct PrivacyDataView: View {
   @State private var jsonExport: JSONExportFile?
   @State private var csvExport: CSVExportFile?
   @State private var showsImporter = false
-  /// Set while the confirm dialog for a checked backup is open.
-  @State private var pendingImport: ValidatedImport?
+  @State private var importConfirmation = ImportConfirmation()
   @State private var showsResetConfirmation = false
   @State private var errorMessage: String?
 
@@ -88,11 +106,11 @@ struct PrivacyDataView: View {
     .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.json]) { result in
       readBackup(result)
     }
-    .confirmationDialog(
+    // Alerts, because iOS 26 shows a confirmation dialog as a popover with no visible Cancel.
+    .alert(
       "Replace All Data?",
-      isPresented: showsImportConfirmation,
-      titleVisibility: .visible,
-      presenting: pendingImport
+      isPresented: $importConfirmation.isPresented,
+      presenting: importConfirmation.pending
     ) { validated in
       Button("Replace All Data", role: .destructive) {
         applyImport(validated)
@@ -101,11 +119,7 @@ struct PrivacyDataView: View {
     } message: { validated in
       Text(importMessage(validated.snapshot))
     }
-    .confirmationDialog(
-      "Reset All Data?",
-      isPresented: $showsResetConfirmation,
-      titleVisibility: .visible
-    ) {
+    .alert("Reset All Data?", isPresented: $showsResetConfirmation) {
       Button("Reset All Data", role: .destructive, action: reset)
       Button("Cancel", role: .cancel) {}
     } message: {
@@ -119,7 +133,7 @@ struct PrivacyDataView: View {
     .task {
       let opensReset = screenshotScenario == .privacyResetConfirm
       guard opensReset || screenshotScenario == .privacyImportConfirm else { return }
-      // Let the screen settle before opening the dialog.
+      // Let the screen settle before opening the alert.
       do {
         try await Task.sleep(for: .milliseconds(600))
       } catch {
@@ -129,16 +143,9 @@ struct PrivacyDataView: View {
         showsResetConfirmation = true
       } else {
         // Offers the sample data's own export, so no file picker is involved.
-        pendingImport = try? DataImport.validate(DataExport.snapshot(of: modelContext))
+        importConfirmation.pending = try? DataImport.validate(DataExport.snapshot(of: modelContext))
       }
     }
-  }
-
-  private var showsImportConfirmation: Binding<Bool> {
-    Binding(
-      get: { pendingImport != nil },
-      set: { if !$0 { pendingImport = nil } }
-    )
   }
 
   private var showsError: Binding<Bool> {
@@ -179,7 +186,7 @@ struct PrivacyDataView: View {
       defer {
         if isScoped { url.stopAccessingSecurityScopedResource() }
       }
-      pendingImport = try DataImport.validate(Data(contentsOf: url))
+      importConfirmation.pending = try DataImport.validate(Data(contentsOf: url))
     } catch {
       errorMessage = error.localizedDescription
     }

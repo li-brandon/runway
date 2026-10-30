@@ -208,6 +208,7 @@ jobs:
               history-500) echo 463 ;;
               budget-change-*) echo 435 ;;
               spending-*) echo 436 ;;
+              privacy-import-confirm|privacy-reset-confirm) echo 468 ;;
               privacy-*) echo 437 ;;
               *) return 1 ;;
             esac
