@@ -145,12 +145,15 @@ and Transport first based on sample expenses), `quick-log-empty` (empty sheet, S
 `quick-log-filled` (amount, Food category, and note), and `today-undo` (saved expense and Undo).
 Today scenarios: `today-normal` ($80 left), `today-near` ($10 left), `today-over` (-$20 left),
 and `today-no-budget` (the empty state with setup closed). These use a fixed local noon on
-June 10, 2026, and categorized expenses including a refund.
+June 10, 2026, and categorized expenses including a refund. `today-large-amount` ($123,456.78 left)
+and `extra-money` (This Period with large extra money, a long note, and large bills) use the same
+date.
 History scenarios use the same date with two biweekly periods of sample spending starting May 24:
 `history-list` (the current period, scrolled to its days), `history-period-summary` (the previous
 period's summary, carryover, and categories), and `history-edit` (the edit sheet for yesterday's
 latest expense). `-RunwayScreenshotScrollTo categories` scrolls History to its category totals,
-`today` scrolls Today to what's left to spend, and `bills` scrolls This Period to its bills.
+`today` scrolls Today to what's left to spend, `bills` scrolls This Period to its bills, and
+`extras` scrolls it to the end of its last extra money row.
 Privacy scenarios: `privacy-settings` (Privacy & Data with the lock on), `privacy-locked` (the lock
 screen), `privacy-import-confirm`, and `privacy-reset-confirm` (their confirm alerts). In-memory
 launches keep the lock setting in memory and never show a Face ID prompt.
@@ -241,7 +244,7 @@ macOS runner. It:
    uploads `screenshots/<ticket>-<scenario>.png` as the `screenshots` artifact: setup uses 430,
    categories and category-picker use 440, quick logging uses 432, the four Today scenarios
    use 433, the three History scenarios use 434, and the privacy scenarios use 437, except the
-   import and reset confirms, which use 468. A failed
+   import and reset confirms, which use 468. `today-large-amount` and `extra-money` use 469. A failed
    capture fails the job. Every scenario is captured at default and largest accessibility text sizes. Setup
    scenarios also get a second accessibility capture scrolled to the amount fields, and
    `history-period-summary` one scrolled to its categories.

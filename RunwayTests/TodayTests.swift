@@ -82,6 +82,29 @@ struct TodayTests {
     }
   }
 
+  @Test("Large amount screenshots show six-figure daily amounts")
+  func largeAmountScreenshot() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    let container = try RunwayModelContainer.make(inMemory: true)
+    let context = ModelContext(container)
+    let budget = try #require(
+      try ScreenshotScenario.todayLargeAmount.seed(into: context, now: now, calendar: calendar)
+    )
+    let expenses = try context.fetch(FetchDescriptor<Expense>())
+    let result = AllowanceEngine(calendar: calendar).currentAllowance(
+      budget: BudgetSnapshot(budget),
+      expenses: expenses.map { ExpenseSnapshot($0) },
+      now: now
+    )
+    #expect(result.remainingTodayCents == 12_345_678)
+    #expect(result.spentTodayCents == 4_567_890)
+    #expect(result.allowanceTodayCents == 16_913_568)
+    #expect(result.remainingPeriodCents == 181_481_358)
+    #expect(result.extraCents == 9_876_543)
+    #expect(TodayStatus(result) == .normal)
+    #expect(expenses.allSatisfy { $0.category != nil })
+  }
+
   @Test("Zero allowance screenshots show no allowance left with nothing spent")
   func zeroAllowanceScreenshot() throws {
     let now = calendar.date(2026, 6, 10, 12)
