@@ -4,6 +4,14 @@ enum SpendingView: String, CaseIterable, Sendable {
   case day = "Day"
   case week = "Week"
   case month = "Month"
+
+  func comparisonLabel(mode: SpendingWindowMode) -> String {
+    switch self {
+    case .day: return "yesterday"
+    case .week: return mode == .rolling ? "previous 7 days" : "last week"
+    case .month: return mode == .rolling ? "previous 30 days" : "last month"
+    }
+  }
 }
 
 enum SpendingWindowMode: String, CaseIterable, Sendable {
@@ -45,9 +53,8 @@ struct SpendingSummary: Equatable, Sendable {
 /// previous calendar period, capped at that period's end (e.g. March 31 compares with February).
 /// Rolling slices include today and the preceding 6/29 days; comparison is the preceding slice.
 /// All intervals are half-open local days. Future expenses and days before budget start are
-/// excluded. Budget slice = sum of History's start-of-day allowances for the included days,
-/// including dated amount/schedule changes, carryover, extra money and earlier net spending.
-/// This is a sum of daily opportunities to spend, not a separate allocation of period income.
+/// excluded. Budget slice sums each day's period spendable plus extra money through that day,
+/// divided by the period's day count, floor-divided in cents. Carryover and spending are excluded.
 struct SpendingSummaryEngine: Sendable {
   let calendar: Calendar
 
@@ -88,11 +95,31 @@ struct SpendingSummaryEngine: Sendable {
     now: Date
   ) -> SpendingSummary {
     let windows = windows(view: view, mode: mode, now: now)
-    let days = HistoryEngine(calendar: calendar).periods(
+    let engine = AllowanceEngine(calendar: calendar)
+    let periods = HistoryEngine(calendar: calendar).periods(
       budget: budget,
       expenses: expenses,
       now: now
-    ).flatMap(\.days)
+    )
+    let days = periods.flatMap(\.days)
+    var budgetCents = 0
+    for history in periods {
+      let period = history.period
+      let periodDays = max(1, engine.dayCount(from: period.start, to: period.end))
+      for day in history.days where windows.current.contains(day.date) {
+        let spendable = engine.spendableCents(
+          of: period,
+          on: day.date,
+          budget: budget
+        )
+        let extra = engine.extraCents(
+          in: period,
+          budget: budget,
+          before: engine.startOfNextDay(after: day.date)
+        )
+        budgetCents += AllowanceEngine.floorDivide(spendable + extra, by: periodDays)
+      }
+    }
     let current = days.filter { windows.current.contains($0.date) }
     let previous = days.filter { windows.previous.contains($0.date) }
     return SpendingSummary(
@@ -100,7 +127,7 @@ struct SpendingSummaryEngine: Sendable {
       previousWindow: windows.previous,
       spentCents: current.reduce(0) { $0 + $1.spentCents },
       previousSpentCents: previous.reduce(0) { $0 + $1.spentCents },
-      budgetCents: current.reduce(0) { $0 + $1.allowanceCents }
+      budgetCents: budgetCents
     )
   }
 }

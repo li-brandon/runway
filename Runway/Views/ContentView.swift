@@ -246,6 +246,7 @@ struct ContentView: View {
       mode: spendingMode,
       now: displayNow
     )
+    let comparison = spendingView.comparisonLabel(mode: spendingMode)
     return VStack(alignment: .leading, spacing: 12) {
       Picker("Spending period", selection: $spendingView) {
         ForEach(SpendingView.allCases, id: \.self) { view in
@@ -273,10 +274,14 @@ struct ContentView: View {
         .lineLimit(1)
         .minimumScaleFactor(0.1)
       if spendingView != .day {
-        Text("Daily allowance total: \(Money.format(cents: summary.budgetCents))")
+        Text("Budget for these days: \(Money.format(cents: summary.budgetCents))")
           .font(.footnote)
           .lineLimit(1)
           .minimumScaleFactor(0.1)
+        let remaining = summary.budgetCents - summary.spentCents
+        let status = remaining < 0 ? "over" : "left"
+        Text("\(Money.format(cents: abs(remaining))) \(status)")
+          .font(.footnote)
       }
       if let change = summary.percentageChange {
         let amount = abs(change).formatted(.number.precision(.fractionLength(0)))
@@ -288,21 +293,21 @@ struct ContentView: View {
         layout {
           Image(systemName: symbol)
             .accessibilityHidden(true)
-          Text("\(amount)% vs previous period")
+          Text("\(amount)% vs \(comparison)")
         }
         .foregroundStyle(change > 0 ? Color.orange : Color.secondary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-          "Spending \(change == 0 ? "unchanged" : direction), \(amount) percent vs previous period"
+          "Spending \(change == 0 ? "unchanged" : direction), \(amount) percent vs \(comparison)"
         )
       } else {
         Text(summary.spentCents == 0 ? "No change" : "New")
-          .accessibilityLabel("Previous period spending was zero; no percentage comparison")
+          .accessibilityLabel("Spending for \(comparison) was zero; no percentage comparison")
       }
       Text(summary.window.start, format: .dateTime.month(.abbreviated).day())
         .font(.caption)
         .foregroundStyle(.secondary)
-      Text("Through today · compared with the same elapsed days in the previous period")
+      Text("Through today · compared with \(comparison)")
         .font(.caption)
         .foregroundStyle(.secondary)
     }

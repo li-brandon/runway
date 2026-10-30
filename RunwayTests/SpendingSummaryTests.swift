@@ -189,7 +189,7 @@ struct SpendingSummaryTests {
     }
   }
 
-  @Test("Budget slice sums historical allowances, preserving mid-period changes")
+  @Test("Budget slice sums base daily shares, preserving mid-period changes")
   func budgetSlice() {
     let start = calendar.date(2026, 6, 1)
     let now = calendar.date(2026, 6, 7, 12)
@@ -202,7 +202,7 @@ struct SpendingSummaryTests {
         AmountChangeSnapshot(previousCents: 7_000, effectiveAt: calendar.date(2026, 6, 4))
       ]
     )
-    // 1,000 + 1,166 + 1,400 before the change; then 3,500 + 4,666 + 7,000 + 14,000.
+    // Three days at 1,000 cents, then four days at 2,000 cents.
     let result = SpendingSummaryEngine(calendar: calendar).summary(
       budget: budget,
       expenses: [HistoryExpense<Int>](),
@@ -210,7 +210,7 @@ struct SpendingSummaryTests {
       mode: .rolling,
       now: now
     )
-    #expect(result.budgetCents == 32_732)
+    #expect(result.budgetCents == 11_000)
     #expect(result.spentCents == 0)
     #expect(result.previousSpentCents == 0)
     let expenses = [HistoryExpense(amountCents: 500, date: start, categoryID: 0)]
@@ -227,9 +227,65 @@ struct SpendingSummaryTests {
         expenses: expenses,
         now: now
       ).flatMap(\.days).filter { summary.window.contains($0.date) }
-      #expect(summary.budgetCents == history.reduce(0) { $0 + $1.allowanceCents })
+      #expect(summary.budgetCents == (view == .day ? 2_000 : 11_000))
       #expect(summary.spentCents == history.reduce(0) { $0 + $1.spentCents })
     }
+  }
+
+  @Test("An unspent period does not inflate the base budget slice with rollover")
+  func unspentBudgetSlice() {
+    let budget = BudgetSnapshot(
+      periodLength: .biweekly,
+      periodStart: calendar.date(2026, 6, 1),
+      spendablePerPeriodCents: 112_000
+    )
+    let engine = SpendingSummaryEngine(calendar: calendar)
+    for day in [7, 14, 21, 28] {
+      let result = engine.summary(
+        budget: budget,
+        expenses: [HistoryExpense<Int>](),
+        view: .week,
+        mode: .rolling,
+        now: calendar.date(2026, 6, day, 12)
+      )
+      #expect(result.budgetCents == 7 * 112_000 / 14)
+    }
+  }
+
+  @Test("Base shares include dated extra money and bill adjustments from their day")
+  func datedExtraBudgetSlice() {
+    let start = calendar.date(2026, 6, 4)
+    let budget = BudgetSnapshot(
+      periodLength: .weekly,
+      periodStart: start,
+      spendablePerPeriodCents: 7_000,
+      extraMoney: [
+        ExtraMoneySnapshot(amountCents: 1_400, date: calendar.date(2026, 6, 5)),
+        ExtraMoneySnapshot(amountCents: -700, date: calendar.date(2026, 6, 6)),
+        ExtraMoneySnapshot(amountCents: 7_000, date: calendar.date(2026, 6, 8)),
+      ]
+    )
+    let result = SpendingSummaryEngine(calendar: calendar).summary(
+      budget: budget,
+      expenses: [HistoryExpense(amountCents: 9_000, date: start, categoryID: 0)],
+      view: .week,
+      mode: .rolling,
+      now: calendar.date(2026, 6, 7, 12)
+    )
+    // Three pre-budget days contribute zero; future extra money is excluded.
+    #expect(result.budgetCents == 1_000 + 1_200 + 1_100 + 1_100)
+    #expect(result.spentCents == 9_000)
+  }
+
+  @Test("Comparison labels match the selected view and boundaries")
+  func comparisonLabels() {
+    for mode in SpendingWindowMode.allCases {
+      #expect(SpendingView.day.comparisonLabel(mode: mode) == "yesterday")
+    }
+    #expect(SpendingView.week.comparisonLabel(mode: .calendar) == "last week")
+    #expect(SpendingView.week.comparisonLabel(mode: .rolling) == "previous 7 days")
+    #expect(SpendingView.month.comparisonLabel(mode: .calendar) == "last month")
+    #expect(SpendingView.month.comparisonLabel(mode: .rolling) == "previous 30 days")
   }
 
   @Test("AppStorage keys default to Day and Calendar and survive preference recreation")
