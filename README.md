@@ -123,6 +123,11 @@ Deleting shows an **Undo** banner for five seconds that restores the amount, not
 category (Other if the category was deleted meanwhile), recreated through
 `CategoryService.createExpense`. Edits go through `CategoryService.updateExpense`.
 
+Expenses dated before the start of the budget's first period appear in a **Before budget** section
+below the oldest period, newest first, and edit, delete, and undo like any other expense. They
+count toward no period's totals or carryover. Their date can be any day through today, and choosing
+one in the budget moves the expense into that period.
+
 Nothing per day is stored. `HistoryEngine` (`Runway/Engine`) derives every figure from the budget
 and expenses with `AllowanceEngine`'s rules, so an edit or delete updates later days, carryover,
 and Today's number at once. Each day row equals `AllowanceEngine` evaluated on that day. One sort
@@ -151,9 +156,11 @@ date.
 History scenarios use the same date with two biweekly periods of sample spending starting May 24:
 `history-list` (the current period, scrolled to its days), `history-period-summary` (the previous
 period's summary, carryover, and categories), and `history-edit` (the edit sheet for yesterday's
-latest expense). `-RunwayScreenshotScrollTo categories` scrolls History to its category totals,
-`today` scrolls Today to what's left to spend, `bills` scrolls This Period to its bills, and
-`extras` scrolls it to the end of its last extra money row.
+latest expense), and `history-before-budget` (the oldest period's page, scrolled to expenses dated
+before the budget's start). `-RunwayScreenshotScrollTo categories` scrolls History to its category
+totals, `before-budget` scrolls it to the end of its Before budget section, `today` scrolls Today
+to what's left to spend, `bills` scrolls This Period to its bills, and `extras` scrolls it to the
+end of its last extra money row.
 Privacy scenarios: `privacy-settings` (Privacy & Data with the lock on), `privacy-locked` (the lock
 screen), `privacy-import-confirm`, and `privacy-reset-confirm` (their confirm alerts). In-memory
 launches keep the lock setting in memory and never show a Face ID prompt.
@@ -244,10 +251,12 @@ macOS runner. It:
    uploads `screenshots/<ticket>-<scenario>.png` as the `screenshots` artifact: setup uses 430,
    categories and category-picker use 440, quick logging uses 432, the four Today scenarios
    use 433, the three History scenarios use 434, and the privacy scenarios use 437, except the
-   import and reset confirms, which use 468. `today-large-amount` and `extra-money` use 469. A failed
+   import and reset confirms, which use 468. `history-before-budget` uses 463b, and
+   `today-large-amount` and `extra-money` use 469. A failed
    capture fails the job. Every scenario is captured at default and largest accessibility text sizes. Setup
    scenarios also get a second accessibility capture scrolled to the amount fields, and
-   `history-period-summary` one scrolled to its categories.
+   `history-period-summary` one scrolled to its categories, and `history-before-budget` one scrolled
+   to the end of its Before budget section.
    `today-normal`, `today-over`, and `history-list` also get dark captures at both sizes, named
    `<ticket>-<scenario>-dark.png` and `<ticket>-<scenario>-ax5-dark.png`. The capture step
    restores light appearance and default text size even on failure.

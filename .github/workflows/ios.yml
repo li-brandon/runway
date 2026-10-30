@@ -196,7 +196,7 @@ jobs:
           SCENARIOS="setup-empty setup-filled setup-warning categories category-picker"
           SCENARIOS="$SCENARIOS quick-log-empty quick-log-filled quick-log-note today-undo"
           SCENARIOS="$SCENARIOS today-normal today-near today-over today-zero today-no-budget"
-          SCENARIOS="$SCENARIOS history-list history-period-summary history-edit history-500"
+          SCENARIOS="$SCENARIOS history-list history-period-summary history-edit history-before-budget history-500"
           SCENARIOS="$SCENARIOS budget-change-amounts budget-change-period budget-change-carryover budget-change-add-money budget-change-bills"
           SCENARIOS="$SCENARIOS spending-day spending-week spending-month spending-month-rolling"
           SCENARIOS="$SCENARIOS privacy-settings privacy-locked privacy-import-confirm privacy-reset-confirm"
@@ -210,6 +210,7 @@ jobs:
               today-zero) echo 457 ;;
               history-list|history-period-summary|history-edit) echo 434 ;;
               history-500) echo 463 ;;
+              history-before-budget) echo 463b ;;
               budget-change-*) echo 435 ;;
               spending-*) echo 436 ;;
               privacy-import-confirm|privacy-reset-confirm) echo 468 ;;
@@ -345,7 +346,7 @@ jobs:
             echo "Capturing $1 → $2"
             xcrun simctl launch --terminate-running-process "$SHOT_UDID" "$BUNDLE_ID" \
               -RunwayInMemoryStore -RunwayScreenshotScenario "$1" "${@:3}"
-            sleep 6
+            sleep "${CAPTURE_WAIT:-6}"
             # Multi-display simulators (e.g. iPhone Duo) need --display; use the "(primary)" one.
             if ! xcrun simctl io "$SHOT_UDID" screenshot "$2" 2> "$RUNNER_TEMP/shot.err"; then
               cat "$RUNNER_TEMP/shot.err"
@@ -373,6 +374,12 @@ jobs:
               history-period-summary)
                 capture "$SCENARIO" "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO-ax5-categories.png" \
                   -RunwayScreenshotScrollTo categories
+                ;;
+              history-before-budget)
+                # Scrolls twice so the footer settles; give it longer than the default wait.
+                CAPTURE_WAIT=10 capture "$SCENARIO" \
+                  "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO-ax5-before-budget.png" \
+                  -RunwayScreenshotScrollTo before-budget
                 ;;
               today-normal|today-over)
                 capture "$SCENARIO" "screenshots/467-$SCENARIO-ax5-today.png" -RunwayScreenshotScrollTo today

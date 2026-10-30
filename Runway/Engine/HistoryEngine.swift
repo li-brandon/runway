@@ -18,7 +18,8 @@ import Foundation
 ///   days from the first through today (all days for a completed period), newest first.
 /// - **Spending** in a completed period counts every expense in it, as its carry-out does. The
 ///   current period counts expenses through the end of today; later-dated ones are ignored until
-///   their day arrives, as on Today. Expenses before the budget's start belong to no period.
+///   their day arrives, as on Today. Expenses before the budget's start belong to no period; see
+///   `beforeBudget`, which keeps them reachable without counting them toward anything.
 /// - **Carryover** chains like `AllowanceEngine.carryInCents`: a completed period's carry-out is
 ///   its remainder if carryover is on at the next boundary, otherwise 0. The current period has no
 ///   carry-out yet.
@@ -156,10 +157,41 @@ struct HistoryEngine: Sendable {
     return result
   }
 
+  /// The items dated before the start of the budget's first period, newest first; ties keep their
+  /// order. They count toward no period's figures.
+  func beforeBudget<Item>(
+    _ items: [Item],
+    budget: BudgetSnapshot,
+    date: (Item) -> Date
+  ) -> [Item] {
+    let anchor = AllowanceEngine(calendar: calendar).period(at: 0, of: budget).start
+    let earlier = items.enumerated().filter { date($0.element) < anchor }
+    let sorted = earlier.sorted { lhs, rhs in
+      let left = date(lhs.element)
+      let right = date(rhs.element)
+      if left != right { return left > right }
+      return lhs.offset < rhs.offset
+    }
+    return sorted.map(\.element)
+  }
+
+  /// The limits on editing the date of an expense dated `date`: its own period, or
+  /// `BudgetPeriod.beforeBudget` for one before the budget's first period.
+  func editablePeriod(of date: Date, budget: BudgetSnapshot) -> BudgetPeriod {
+    let period = AllowanceEngine(calendar: calendar).period(containing: date, of: budget)
+    return date < period.start ? .beforeBudget : period
+  }
+
   /// The last local day of `period`, for display.
   func lastDay(of period: BudgetPeriod) -> Date {
     AllowanceEngine(calendar: calendar).lastDay(of: period)
   }
+}
+
+extension BudgetPeriod {
+  /// Edit limits for an expense before the budget's first period: any date through now. So saving
+  /// other changes leaves its date alone, and choosing a date in the budget moves it into a period.
+  static let beforeBudget = BudgetPeriod(index: -1, start: .distantPast, end: .distantFuture)
 }
 
 // MARK: - Inputs

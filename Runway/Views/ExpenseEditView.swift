@@ -3,8 +3,9 @@ import SwiftData
 import SwiftUI
 
 /// Edits a saved expense from History with the quick-log form: amount, refund, category, note,
-/// and a date inside the expense's own period through now. Delete hands the expense back to
-/// History, which deletes it and offers Undo.
+/// and a date inside the expense's own period through now, or for an expense before the budget
+/// (`BudgetPeriod.beforeBudget`), any date through now. Delete hands the expense back to History,
+/// which deletes it and offers Undo.
 struct ExpenseEditView: View {
   let expense: Expense
   let period: BudgetPeriod
@@ -79,7 +80,11 @@ struct ExpenseEditView: View {
             datePicker
           }
         } footer: {
-          Text("The date stays within this expense's budget period, through today.")
+          if period == .beforeBudget {
+            Text("Choosing a date since your budget started moves this expense into that period.")
+          } else {
+            Text("The date stays within this expense's budget period, through today.")
+          }
         }
         Section {
           Button(role: .destructive) {
@@ -134,7 +139,14 @@ struct ExpenseEditView: View {
     .datePickerStyle(.compact)
     .frame(minHeight: 44)
     .accessibilityLabel("Expense date")
-    .accessibilityHint("Choose a date in this expense's budget period, through today.")
+    .accessibilityHint(dateHint)
+  }
+
+  private var dateHint: String {
+    if period == .beforeBudget {
+      return "Choose any date through today. A date in your budget moves it into that period."
+    }
+    return "Choose a date in this expense's budget period, through today."
   }
 
   private func save() {
