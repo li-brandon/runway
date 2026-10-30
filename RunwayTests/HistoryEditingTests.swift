@@ -472,7 +472,6 @@ struct HistoryEditingTests {
     let parts = elapsed.components
     let milliseconds = Double(parts.seconds) * 1_000 + Double(parts.attoseconds) / 1e15
     print("LIB464_HISTORY_LOAD_MS=\(String(format: "%.2f", milliseconds))")
-    #expect(milliseconds < 0, "TEMP LIB464 measurement probe")
 
     #expect(elapsed < .seconds(1))
     let shown = try #require(page)
