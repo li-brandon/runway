@@ -10,12 +10,19 @@ import SwiftData
 /// - `-RunwayScreenshotScrollTo spendable` scrolls setup to its amount fields, and
 ///   `-RunwayScreenshotScrollTo categories` scrolls History to its category totals. Both are
 ///   ignored without `-RunwayInMemoryStore`. The `carryover` target scrolls to the carryover
-///   setting and is the default for `budget-change-carryover`.
+///   setting and is the default for `budget-change-carryover`. The `today` target scrolls Today to
+///   what's left to spend, and `bills` scrolls This Period to its bills.
 struct LaunchOptions: Equatable, Sendable {
   static let inMemoryStoreArgument = "-RunwayInMemoryStore"
   static let screenshotScenarioArgument = "-RunwayScreenshotScenario"
   static let screenshotScrollToArgument = "-RunwayScreenshotScrollTo"
-  static let screenshotScrollTargets: Set<String> = ["spendable", "categories", "carryover"]
+  static let screenshotScrollTargets: Set<String> = [
+    "spendable",
+    "categories",
+    "carryover",
+    "today",
+    "bills",
+  ]
 
   var usesInMemoryStore = false
   var screenshotScenario: ScreenshotScenario?

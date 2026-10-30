@@ -368,6 +368,12 @@ jobs:
                 capture "$SCENARIO" "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO-ax5-categories.png" \
                   -RunwayScreenshotScrollTo categories
                 ;;
+              today-normal|today-over)
+                capture "$SCENARIO" "screenshots/467-$SCENARIO-ax5-today.png" -RunwayScreenshotScrollTo today
+                ;;
+              budget-change-bills)
+                capture "$SCENARIO" "screenshots/467-$SCENARIO-ax5-bills.png" -RunwayScreenshotScrollTo bills
+                ;;
             esac
           done
 

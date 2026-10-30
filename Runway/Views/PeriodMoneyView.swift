@@ -35,39 +35,52 @@ struct PeriodMoneyView: View {
     let period = self.period
     let extras = budget.extraMoneyItems(in: period)
     return NavigationStack {
-      List {
-        Section {
-          ForEach(extras) { extra in
-            extraRow(extra)
-          }
-          .onDelete { offsets in
-            remove(offsets.map { extras[$0] })
-          }
-          Button("Add Money", systemImage: "plus") {
-            showsAddMoney = true
-          }
-        } header: {
-          Text("Extra money")
-        } footer: {
-          Text("One-off money, like a bonus or gift. It counts from the day it's added.")
-        }
-
-        Section {
-          if bills.isEmpty {
-            Text("No fixed bills.")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(bills) { bill in
-              billRow(bill, status: budget.status(of: bill, in: period))
+      ScrollViewReader { proxy in
+        List {
+          Section {
+            ForEach(extras) { extra in
+              extraRow(extra)
             }
+            .onDelete { offsets in
+              remove(offsets.map { extras[$0] })
+            }
+            Button("Add Money", systemImage: "plus") {
+              showsAddMoney = true
+            }
+          } header: {
+            Text("Extra money")
+          } footer: {
+            Text("One-off money, like a bonus or gift. It counts from the day it's added.")
           }
-        } header: {
-          Text("Bills this period")
-        } footer: {
-          Text(
-            "Bills are set aside every period, so paying one early changes nothing. Skipping "
-              + "one, or paying a different amount, changes what's left from today."
-          )
+
+          Section {
+            if bills.isEmpty {
+              Text("No fixed bills.")
+                .foregroundStyle(.secondary)
+            } else {
+              ForEach(bills) { bill in
+                billRow(bill, status: budget.status(of: bill, in: period))
+              }
+            }
+          } header: {
+            Text("Bills this period")
+          } footer: {
+            Text(
+              "Bills are set aside every period, so paying one early changes nothing. Skipping "
+                + "one, or paying a different amount, changes what's left from today."
+            )
+          }
+          .id("bills")
+        }
+        .task {
+          let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
+          guard options.screenshotScrollTo == "bills" else { return }
+          do {
+            try await Task.sleep(for: .milliseconds(300))
+          } catch {
+            return
+          }
+          proxy.scrollTo("bills", anchor: .top)
         }
       }
       .navigationTitle("This Period")

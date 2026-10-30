@@ -149,7 +149,8 @@ June 10, 2026, and categorized expenses including a refund.
 History scenarios use the same date with two biweekly periods of sample spending starting May 24:
 `history-list` (the current period, scrolled to its days), `history-period-summary` (the previous
 period's summary, carryover, and categories), and `history-edit` (the edit sheet for yesterday's
-latest expense). `-RunwayScreenshotScrollTo categories` scrolls History to its category totals.
+latest expense). `-RunwayScreenshotScrollTo categories` scrolls History to its category totals,
+`today` scrolls Today to what's left to spend, and `bills` scrolls This Period to its bills.
 Privacy scenarios: `privacy-settings` (Privacy & Data with the lock on), `privacy-locked` (the lock
 screen), `privacy-import-confirm`, and `privacy-reset-confirm` (their confirm dialogs). In-memory
 launches keep the lock setting in memory and never show a Face ID prompt.
