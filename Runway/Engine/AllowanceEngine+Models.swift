@@ -193,11 +193,11 @@ extension Budget {
   // MARK: - Extra money
 
   /// Adds one-off money, like a bonus or gift, to the period containing `now`. It raises today's
-  /// allowance and the period's remainder.
+  /// allowance and the period's remainder. Dated today's local midnight, like every day-only date.
   @discardableResult
-  func addExtraMoney(cents: Int, note: String, now: Date) -> ExtraMoney {
+  func addExtraMoney(cents: Int, note: String, now: Date, calendar: Calendar) -> ExtraMoney {
     let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
-    let extra = ExtraMoney(amountCents: cents, note: note, date: now)
+    let extra = ExtraMoney(amountCents: cents, note: note, date: calendar.startOfDay(for: now))
     modelContext?.insert(extra)
     extraMoney.append(extra)
     return extra
@@ -208,7 +208,7 @@ extension Budget {
     modelContext?.delete(extra)
   }
 
-  /// Extra money dated in `period`, newest first.
+  /// Extra money dated in `period`, newest day first.
   func extraMoneyItems(in period: BudgetPeriod) -> [ExtraMoney] {
     extraMoney.filter { period.contains($0.date) }.sorted { $0.date > $1.date }
   }
@@ -247,7 +247,7 @@ extension Budget {
       plannedCents: bill.amountCents,
       paidCents: paidCents,
       adjustmentCents: credit - previousCredit,
-      now: now
+      date: calendar.startOfDay(for: now)
     )
   }
 
@@ -257,7 +257,7 @@ extension Budget {
     plannedCents: Int,
     paidCents: Int,
     adjustmentCents: Int,
-    now: Date
+    date: Date
   ) {
     let sequence = (billPayments.map(\.sequence).max() ?? 0) + 1
     let mark = BillPayment(
@@ -267,7 +267,7 @@ extension Budget {
       paidCents: paidCents,
       adjustmentCents: adjustmentCents,
       sequence: sequence,
-      date: now
+      date: date
     )
     modelContext?.insert(mark)
     billPayments.append(mark)
@@ -275,7 +275,13 @@ extension Budget {
   }
 
   /// Offsets the amount edit for an already settled bill, from the edit day forward.
-  func rebaseMark(of bill: FixedBill, releasedCents: Int, in period: BudgetPeriod, now: Date) {
+  func rebaseMark(
+    of bill: FixedBill,
+    releasedCents: Int,
+    in period: BudgetPeriod,
+    now: Date,
+    calendar: Calendar
+  ) {
     guard releasedCents != 0,
       let mark = payment(for: bill, in: period), !mark.isCleared
     else { return }
@@ -285,16 +291,17 @@ extension Budget {
       plannedCents: mark.plannedCents - releasedCents,
       paidCents: mark.paidCents,
       adjustmentCents: -releasedCents,
-      now: now
+      date: calendar.startOfDay(for: now)
     )
   }
 
   // MARK: - Time zones
 
-  /// Re-expresses the day-only dates (`periodStart` and every change's dates) as local midnights
-  /// in `calendar`'s time zone, keeping their calendar days, so paydays and change dates stay on
-  /// the same dates after the device moves to another time zone. A budget with no recorded time
-  /// zone just records `calendar`'s. Returns whether anything changed.
+  /// Re-expresses the day-only dates (`periodStart`, every change's dates, extra money, and bill
+  /// marks) as local midnights in `calendar`'s time zone, keeping their calendar days, so they
+  /// stay on the same dates after the device moves to another time zone. Expenses keep their
+  /// instants. A budget with no recorded time zone just records `calendar`'s. Returns whether
+  /// anything changed.
   @discardableResult
   func adoptTimeZone(of calendar: Calendar) -> Bool {
     let identifier = calendar.timeZone.identifier
@@ -318,6 +325,12 @@ extension Budget {
     for change in scheduleChanges {
       change.effectiveAt = sameDay(change.effectiveAt)
       change.previousPeriodStart = sameDay(change.previousPeriodStart)
+    }
+    for extra in extraMoney {
+      extra.date = sameDay(extra.date)
+    }
+    for payment in billPayments {
+      payment.date = sameDay(payment.date)
     }
     return true
   }

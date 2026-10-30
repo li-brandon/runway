@@ -158,10 +158,16 @@ struct MidPeriodAmountTests {
   func addsExtraMoney() throws {
     let context = ModelContext(container)
     let budget = try makeBudget(in: context)
-    let gift = budget.addExtraMoney(cents: 15_000, note: " Birthday gift ", now: today)
+    let gift = budget.addExtraMoney(
+      cents: 15_000,
+      note: " Birthday gift ",
+      now: today,
+      calendar: calendar
+    )
     try context.save()
 
     #expect(gift.note == "Birthday gift")
+    #expect(gift.date == calendar.date(2026, 6, 3))
     #expect(gift.budget?.persistentModelID == budget.persistentModelID)
     let result = allowance(budget, now: today, expenses: mondayLunch)
     // (700 + 150 - 100) / 5.
@@ -231,6 +237,7 @@ struct MidPeriodAmountTests {
     try context.save()
     #expect(budget.status(of: rent, in: period) == .skipped)
     #expect(try context.fetchCount(FetchDescriptor<BillPayment>()) == 3)
+    #expect(budget.billPayments.allSatisfy { $0.date == calendar.date(2026, 6, 3) })
     #expect(current().remainingPeriodCents == 100_000)
     // 1,000 / 5 from today. With no spending, Monday keeps 700 / 7 and Tuesday 700 / 6.
     #expect(current().allowanceTodayCents == 20_000)

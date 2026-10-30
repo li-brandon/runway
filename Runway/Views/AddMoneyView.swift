@@ -76,7 +76,7 @@ struct AddMoneyView: View {
 
   private func save() {
     guard let cents else { return }
-    budget.addExtraMoney(cents: cents, note: note, now: .now)
+    budget.addExtraMoney(cents: cents, note: note, now: .now, calendar: .current)
     do {
       try modelContext.save()
       dismiss()

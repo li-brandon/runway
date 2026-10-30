@@ -406,4 +406,76 @@ struct HistoryEditingTests {
       #expect(rows.map(\.date) == rows.map(\.date).sorted(by: >))
     }
   }
+
+  /// Times what `HistoryView` computes per render for a long period chain, and logs it for CI so
+  /// LIB-464 can decide whether the chain needs caching (threshold about 100 ms).
+  @Test("History's page builds quickly for 24+ periods with budget changes")
+  func longPeriodChainPage() throws {
+    let start = calendar.date(2026, 1, 5)
+    let now = calendar.date(2026, 6, 30, 12)
+    let longBudget = Budget(
+      periodLength: .weekly,
+      periodStart: start,
+      spendablePerPeriodCents: 70_000
+    )
+    context.insert(longBudget)
+    longBudget.updatePeriod(
+      .weekly,
+      start: calendar.date(2026, 3, 4),
+      now: calendar.date(2026, 3, 4, 12),
+      calendar: calendar
+    )
+    longBudget.spendablePerPeriodCents = 80_000
+    longBudget.recordAmountChange(
+      from: 70_000,
+      now: calendar.date(2026, 4, 15, 12),
+      calendar: calendar
+    )
+    longBudget.spendablePerPeriodCents = 75_000
+    longBudget.recordAmountChange(
+      from: 80_000,
+      now: calendar.date(2026, 5, 20, 12),
+      calendar: calendar
+    )
+    var totalCents = 0
+    for index in 0..<400 {
+      let day = calendar.date(byAdding: .day, value: index * 176 / 400, to: start)!
+      let date = calendar.date(byAdding: .minute, value: 480 + index % 20 * 30, to: day)!
+      let amountCents = 500 + index % 37 * 150
+      totalCents += amountCents
+      try service.createExpense(amountCents: amountCents, date: date, now: date)
+    }
+    try context.save()
+    #expect(longBudget.scheduleChanges.count == 1)
+    #expect(longBudget.amountChanges.count == 2)
+    // Sorted like HistoryView's query.
+    let expenses = try context.fetch(
+      FetchDescriptor<Expense>(
+        sortBy: [
+          SortDescriptor(\.date, order: .reverse),
+          SortDescriptor(\.createdAt, order: .reverse),
+        ]
+      )
+    )
+    #expect(expenses.count == 400)
+
+    var page: HistoryPage?
+    let elapsed = ContinuousClock().measure {
+      page = HistoryView.makePage(
+        budget: longBudget,
+        expenses: expenses,
+        periodOffset: 0,
+        now: now,
+        calendar: calendar
+      )
+    }
+    let parts = elapsed.components
+    let milliseconds = Double(parts.seconds) * 1_000 + Double(parts.attoseconds) / 1e15
+    print("LIB464_HISTORY_LOAD_MS=\(String(format: "%.2f", milliseconds))")
+
+    #expect(elapsed < .seconds(1))
+    let shown = try #require(page)
+    #expect(shown.periods.count >= 24)
+    #expect(shown.periods.reduce(0) { $0 + $1.spentCents } == totalCents)
+  }
 }

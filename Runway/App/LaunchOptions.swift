@@ -219,7 +219,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       budget.fixedBills.append(bill)
     }
     if self == .budgetChangeBills {
-      budget.addExtraMoney(cents: 15_000, note: "Birthday gift", now: now)
+      budget.addExtraMoney(cents: 15_000, note: "Birthday gift", now: now, calendar: calendar)
       let rent = bills[0]
       budget.setStatus(.paid(cents: rent.amountCents), of: rent, now: now, calendar: calendar)
       budget.setStatus(.skipped, of: bills[1], now: now, calendar: calendar)
