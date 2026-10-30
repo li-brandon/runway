@@ -39,9 +39,10 @@ struct CategoryService {
 
   /// Other is also the durable seed marker. Renaming or deleting a default never restores it.
   /// Existing pre-feature categories are retained; matching default names are adopted.
+  /// Models with a pending delete don't count, because `DataReset.reset` seeds before it saves.
   @discardableResult
   func seed() throws -> Category {
-    var existing = try categories()
+    var existing = try categories().filter { !$0.isDeleted }
     let other: Category
     if let system = existing.first(where: { $0.isSystem }) {
       other = system
@@ -67,7 +68,8 @@ struct CategoryService {
       other = existing.first(where: { $0.isSystem })!
     }
     // The relationship stays optional for SwiftData. Repair any old uncategorized expenses.
-    for expense in try context.fetch(FetchDescriptor<Expense>()) where expense.category == nil {
+    let expenses = try context.fetch(FetchDescriptor<Expense>())
+    for expense in expenses where !expense.isDeleted && expense.category == nil {
       expense.category = other
     }
     return other
