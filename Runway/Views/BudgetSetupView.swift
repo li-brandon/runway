@@ -7,21 +7,30 @@ import SwiftUI
 struct BudgetSetupView: View {
   /// The budget being edited, or `nil` to create one.
   let budget: Budget?
+  let screenshotScenario: ScreenshotScenario?
 
   @Environment(\.modelContext) private var modelContext
   @Environment(\.dismiss) private var dismiss
+  @Query private var expenses: [Expense]
   @State private var draft: BudgetDraft
   @State private var showsSaveError = false
   @State private var saveErrorMessage = ""
+  /// Set while the confirm dialog for a period length or payday change is open.
+  @State private var schedulePreview: ScheduleChangePreview?
 
-  init(budget: Budget?) {
+  init(budget: Budget?, screenshotScenario: ScreenshotScenario? = nil) {
     self.budget = budget
+    self.screenshotScenario = screenshotScenario
     if let budget {
-      _draft = State(initialValue: BudgetDraft(budget: budget))
+      var draft = BudgetDraft(budget: budget)
+      screenshotScenario?.prepare(&draft)
+      _draft = State(initialValue: draft)
     } else {
       _draft = State(initialValue: BudgetDraft(periodStart: Calendar.current.startOfDay(for: .now)))
     }
   }
+
+  private var calendar: Calendar { .current }
 
   var body: some View {
     let issues = draft.issues
@@ -47,6 +56,13 @@ struct BudgetSetupView: View {
             .font(.footnote)
             .foregroundStyle(.orange)
           }
+          if let budget, draft.changesAvailable(of: budget) {
+            Label(
+              "New amounts apply from today. Earlier days keep the allowance they had.",
+              systemImage: "calendar.badge.clock"
+            )
+            .font(.footnote)
+          }
         } footer: {
           Text("Spendable minus bills and savings, spread across the days of the period.")
         }
@@ -62,7 +78,11 @@ struct BudgetSetupView: View {
         } header: {
           Text("Pay period")
         } footer: {
-          Text("Pick a payday. Each period starts on that day.")
+          if let budget, draft.changesSchedule(of: budget, calendar: calendar) {
+            Text("Saving ends the current period today and starts a new one.")
+          } else {
+            Text("Pick a payday. Each period starts on that day.")
+          }
         }
 
         Section {
@@ -123,9 +143,14 @@ struct BudgetSetupView: View {
 
         Section {
           Toggle("Carry over leftovers", isOn: $draft.carryoverEnabled)
+          if let date = carryoverChangeDate {
+            Label(carryoverChangeText(date), systemImage: "calendar.badge.clock")
+              .font(.footnote)
+          }
         } footer: {
           Text("Leftovers or overspending roll into the next period. Changes apply next period.")
         }
+        .id("carryover")
       }
       .task {
         let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
@@ -149,15 +174,105 @@ struct BudgetSetupView: View {
         }
       }
       ToolbarItem(placement: .confirmationAction) {
-        Button("Save", action: save)
+        Button("Save", action: requestSave)
           .disabled(!draft.canSave)
       }
+    }
+    .confirmationDialog(
+      "Start a New Period?",
+      isPresented: showsScheduleConfirmation,
+      titleVisibility: .visible,
+      presenting: schedulePreview
+    ) { _ in
+      Button("Start New Period Today", action: save)
+      Button("Cancel", role: .cancel) {}
+    } message: { preview in
+      Text(scheduleChangeMessage(preview))
     }
     .alert("Couldn't Save", isPresented: $showsSaveError) {
       Button("OK", role: .cancel) {}
     } message: {
       Text(saveErrorMessage)
     }
+    .task {
+      guard screenshotScenario == .budgetChangePeriod else { return }
+      // Let the sheet finish presenting before opening the dialog.
+      do {
+        try await Task.sleep(for: .milliseconds(600))
+      } catch {
+        return
+      }
+      requestSave()
+    }
+  }
+
+  // MARK: - Mid-period changes
+
+  private var carryoverChangeDate: Date? {
+    guard let budget else { return nil }
+    return draft.carryoverChangeDate(for: budget, now: .now, calendar: calendar)
+  }
+
+  private func carryoverChangeText(_ date: Date) -> String {
+    let day = date.formatted(.dateTime.month(.abbreviated).day())
+    let change = draft.carryoverEnabled ? "on" : "off"
+    return "Carryover turns \(change) when the next period starts, on \(day). "
+      + "This period keeps its carry-in."
+  }
+
+  private var showsScheduleConfirmation: Binding<Bool> {
+    Binding(
+      get: { schedulePreview != nil },
+      set: { if !$0 { schedulePreview = nil } }
+    )
+  }
+
+  /// Saves, first asking for confirmation when a period length or payday change would end the
+  /// current period.
+  private func requestSave() {
+    if let budget,
+      let preview = draft.schedulePreview(
+        for: budget,
+        expenses: expenses.map { ExpenseSnapshot($0) },
+        now: .now,
+        calendar: calendar
+      )
+    {
+      schedulePreview = preview
+    } else {
+      save()
+    }
+  }
+
+  private func scheduleChangeMessage(_ preview: ScheduleChangePreview) -> String {
+    let engine = AllowanceEngine(calendar: calendar)
+    let format = Date.FormatStyle.dateTime.month(.abbreviated).day()
+    let newEnd = engine.lastDay(of: preview.newPeriod).formatted(format)
+    let endingLast = engine.lastDay(of: preview.endingPeriod).formatted(format)
+    var lines = ["A new period starts today and runs through \(newEnd)."]
+    if preview.endingPeriod.isPartial {
+      let days = engine.dayCount(from: preview.endingPeriod.start, to: preview.endingPeriod.end)
+      lines.append(
+        "The current period ends early, after \(endingLast). Its money is cut to the \(days) "
+          + "days it ran."
+      )
+    } else {
+      lines.append("The previous period ended on \(endingLast).")
+    }
+    let amount = Money.format(cents: abs(preview.leftoverCents))
+    let isOver = preview.leftoverCents < 0
+    switch (preview.carriesOver, isOver) {
+    case (true, false):
+      lines.append("Its \(amount) left over carries into the new period.")
+    case (true, true):
+      lines.append("Its \(amount) of overspending carries into the new period.")
+    case (false, false):
+      lines.append("Carryover is off, so its \(amount) left over doesn't carry over.")
+    case (false, true):
+      lines.append("Carryover is off, so its \(amount) of overspending doesn't carry over.")
+    }
+    lines.append("Earlier days keep their history.")
+    return lines.joined(separator: " ")
   }
 
   private func save() {

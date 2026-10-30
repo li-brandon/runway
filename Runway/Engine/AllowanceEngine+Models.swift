@@ -5,15 +5,40 @@ import SwiftData
 
 extension BudgetSnapshot {
   /// Uses the budget's available amount (spendable − fixed bills − savings) as the per-period
-  /// money, and includes its carryover history sorted by `effectiveAt` as the engine requires.
+  /// money, and includes its carryover, amount, and schedule histories sorted by `effectiveAt`
+  /// as the engine requires. Extra money includes what marked bills give back.
   init(_ budget: Budget) {
-    let changes = budget.carryoverChanges.sorted { $0.effectiveAt < $1.effectiveAt }
+    let carryover = budget.carryoverChanges.sorted { $0.effectiveAt < $1.effectiveAt }
+    let amounts = budget.amountChanges.sorted { $0.effectiveAt < $1.effectiveAt }
+    let schedules = budget.scheduleChanges.sorted { $0.effectiveAt < $1.effectiveAt }
+    let extra = budget.extraMoney.map { extra in
+      ExtraMoneySnapshot(amountCents: extra.amountCents, date: extra.date)
+    }
+    let bills = budget.billPayments.compactMap { payment -> ExtraMoneySnapshot? in
+      let cents = payment.adjustmentCents
+      guard cents != 0 else { return nil }
+      return ExtraMoneySnapshot(amountCents: cents, date: payment.date)
+    }
     self.init(
       periodLength: budget.periodLength,
       periodStart: budget.periodStart,
       spendablePerPeriodCents: budget.availablePerPeriodCents,
       carryoverEnabled: budget.carryoverEnabled,
-      carryoverChanges: changes.map { CarryoverChangeSnapshot($0) }
+      carryoverChanges: carryover.map { CarryoverChangeSnapshot($0) },
+      amountChanges: amounts.map { change in
+        AmountChangeSnapshot(
+          previousCents: change.previousAvailableCents,
+          effectiveAt: change.effectiveAt
+        )
+      },
+      scheduleChanges: schedules.map { change in
+        ScheduleChangeSnapshot(
+          previousPeriodLength: change.previousPeriodLength,
+          previousPeriodStart: change.previousPeriodStart,
+          effectiveAt: change.effectiveAt
+        )
+      },
+      extraMoney: extra + bills
     )
   }
 }
@@ -64,12 +89,33 @@ extension Budget {
     reschedulePendingCarryoverChange(now: now, calendar: calendar, previousSetting: previous)
   }
 
-  /// Changes the period length and start (payday). A pending carryover change moves to the new
-  /// next boundary after `now`, or is dropped if the setting in effect already matches it.
+  /// Changes the period length and start (payday) from today: the current period ends at the
+  /// start of today and the new schedule's first period starts today (see
+  /// `BudgetSnapshot.changingSchedule`). Earlier days keep the schedule they had, recorded in
+  /// `scheduleChanges`. A pending carryover change moves to the new next boundary after `now`, or
+  /// is dropped if the setting in effect already matches it.
   func updatePeriod(_ length: PeriodLength, start: Date, now: Date, calendar: Calendar) {
     guard length != periodLength || start != periodStart else { return }
-    periodLength = length
-    periodStart = start
+    let before = BudgetSnapshot(self)
+    let after = before.changingSchedule(to: length, start: start, now: now, calendar: calendar)
+    if after.scheduleChanges.count > before.scheduleChanges.count,
+      let added = after.scheduleChanges.last
+    {
+      let change = ScheduleChange(
+        previousPeriodLength: added.previousPeriodLength,
+        previousPeriodStart: added.previousPeriodStart,
+        effectiveAt: added.effectiveAt
+      )
+      modelContext?.insert(change)
+      scheduleChanges.append(change)
+    } else if after.scheduleChanges.count < before.scheduleChanges.count,
+      let latest = scheduleChanges.max(by: { $0.effectiveAt < $1.effectiveAt })
+    {
+      scheduleChanges.removeAll { $0 === latest }
+      modelContext?.delete(latest)
+    }
+    periodLength = after.periodLength
+    periodStart = after.periodStart
     reschedulePendingCarryoverChange(
       now: now,
       calendar: calendar,
@@ -81,8 +127,9 @@ extension Budget {
   /// from the one in effect to `carryoverEnabled`.
   ///
   /// A change is pending if it hasn't applied by the start of the period containing `now`, judged
-  /// by the current schedule (a period change can turn an applied change back into a pending
-  /// one). The setting in effect comes from the last applied change, else the first pending
+  /// by the current schedule (a period change before the budget's first day can turn an applied
+  /// change back into a pending one). The setting in effect comes from the last applied change,
+  /// else the first pending
   /// change's `previousEnabled`, else `previousSetting` when there is no history at all.
   private func reschedulePendingCarryoverChange(
     now: Date,
@@ -117,4 +164,168 @@ extension Budget {
       carryoverChanges.append(change)
     }
   }
+
+  // MARK: - Amount changes
+
+  /// Records that the available amount was `previousCents` before today, so earlier days keep
+  /// the allowance they had and the current amount applies from today. Call after changing
+  /// spendable, bills, or savings.
+  ///
+  /// Nothing is recorded before the budget's first day, when no day has used the old amount. A
+  /// second change on the same day keeps the amount from before today, and drops the record if
+  /// the amount goes back to it.
+  func recordAmountChange(from previousCents: Int, now: Date, calendar: Calendar) {
+    let today = calendar.startOfDay(for: now)
+    let engine = AllowanceEngine(calendar: calendar)
+    guard today > engine.period(at: 0, of: BudgetSnapshot(self)).start else { return }
+    let currentCents = availablePerPeriodCents
+    if let existing = amountChanges.first(where: { $0.effectiveAt == today }) {
+      guard existing.previousAvailableCents == currentCents else { return }
+      amountChanges.removeAll { $0 === existing }
+      modelContext?.delete(existing)
+    } else if previousCents != currentCents {
+      let change = AmountChange(previousAvailableCents: previousCents, effectiveAt: today)
+      modelContext?.insert(change)
+      amountChanges.append(change)
+    }
+  }
+
+  // MARK: - Extra money
+
+  /// Adds one-off money, like a bonus or gift, to the period containing `now`. It raises today's
+  /// allowance and the period's remainder.
+  @discardableResult
+  func addExtraMoney(cents: Int, note: String, now: Date) -> ExtraMoney {
+    let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
+    let extra = ExtraMoney(amountCents: cents, note: note, date: now)
+    modelContext?.insert(extra)
+    extraMoney.append(extra)
+    return extra
+  }
+
+  func removeExtraMoney(_ extra: ExtraMoney) {
+    extraMoney.removeAll { $0 === extra }
+    modelContext?.delete(extra)
+  }
+
+  /// Extra money dated in `period`, newest first.
+  func extraMoneyItems(in period: BudgetPeriod) -> [ExtraMoney] {
+    extraMoney.filter { period.contains($0.date) }.sorted { $0.date > $1.date }
+  }
+
+  // MARK: - Bills
+
+  /// `bill`'s paid or skipped mark in `period`, if any.
+  func payment(for bill: FixedBill, in period: BudgetPeriod) -> BillPayment? {
+    billPayments.filter { $0.bill === bill && period.contains($0.date) }
+      .max { $0.sequence < $1.sequence }
+  }
+
+  func status(of bill: FixedBill, in period: BudgetPeriod) -> BillStatus {
+    guard let mark = payment(for: bill, in: period), !mark.isCleared else { return .unpaid }
+    return mark.isSkipped ? .skipped : .paid(cents: mark.paidCents)
+  }
+
+  /// Appends a dated adjustment so replacing or clearing a mark preserves earlier days.
+  func setStatus(_ status: BillStatus, of bill: FixedBill, now: Date, calendar: Calendar) {
+    let engine = AllowanceEngine(calendar: calendar)
+    let period = engine.period(containing: now, of: BudgetSnapshot(self))
+    guard self.status(of: bill, in: period) != status else { return }
+    let previous = payment(for: bill, in: period)
+    let previousCredit = previous.map { $0.isCleared ? 0 : $0.plannedCents - $0.paidCents } ?? 0
+    let paidCents: Int
+    switch status {
+    case .unpaid, .skipped:
+      paidCents = 0
+    case .paid(let cents):
+      paidCents = cents
+    }
+    let credit = status == .unpaid ? 0 : bill.amountCents - paidCents
+    appendMark(
+      of: bill,
+      status: status,
+      plannedCents: bill.amountCents,
+      paidCents: paidCents,
+      adjustmentCents: credit - previousCredit,
+      now: now
+    )
+  }
+
+  private func appendMark(
+    of bill: FixedBill,
+    status: BillStatus,
+    plannedCents: Int,
+    paidCents: Int,
+    adjustmentCents: Int,
+    now: Date
+  ) {
+    let sequence = (billPayments.map(\.sequence).max() ?? 0) + 1
+    let mark = BillPayment(
+      isSkipped: status == .skipped,
+      isCleared: status == .unpaid,
+      plannedCents: plannedCents,
+      paidCents: paidCents,
+      adjustmentCents: adjustmentCents,
+      sequence: sequence,
+      date: now
+    )
+    modelContext?.insert(mark)
+    billPayments.append(mark)
+    mark.bill = bill
+  }
+
+  /// Offsets the amount edit for an already settled bill, from the edit day forward.
+  func rebaseMark(of bill: FixedBill, releasedCents: Int, in period: BudgetPeriod, now: Date) {
+    guard releasedCents != 0,
+      let mark = payment(for: bill, in: period), !mark.isCleared
+    else { return }
+    appendMark(
+      of: bill,
+      status: status(of: bill, in: period),
+      plannedCents: mark.plannedCents - releasedCents,
+      paidCents: mark.paidCents,
+      adjustmentCents: -releasedCents,
+      now: now
+    )
+  }
+
+  // MARK: - Time zones
+
+  /// Re-expresses the day-only dates (`periodStart` and every change's dates) as local midnights
+  /// in `calendar`'s time zone, keeping their calendar days, so paydays and change dates stay on
+  /// the same dates after the device moves to another time zone. A budget with no recorded time
+  /// zone just records `calendar`'s. Returns whether anything changed.
+  @discardableResult
+  func adoptTimeZone(of calendar: Calendar) -> Bool {
+    let identifier = calendar.timeZone.identifier
+    guard identifier != timeZoneIdentifier else { return false }
+    defer { timeZoneIdentifier = identifier }
+    guard let previous = TimeZone(identifier: timeZoneIdentifier) else { return true }
+    var source = calendar
+    source.timeZone = previous
+    func sameDay(_ date: Date) -> Date {
+      let components = source.dateComponents([.year, .month, .day], from: date)
+      guard let moved = calendar.date(from: components) else { return date }
+      return calendar.startOfDay(for: moved)
+    }
+    periodStart = sameDay(periodStart)
+    for change in carryoverChanges {
+      change.effectiveAt = sameDay(change.effectiveAt)
+    }
+    for change in amountChanges {
+      change.effectiveAt = sameDay(change.effectiveAt)
+    }
+    for change in scheduleChanges {
+      change.effectiveAt = sameDay(change.effectiveAt)
+      change.previousPeriodStart = sameDay(change.previousPeriodStart)
+    }
+    return true
+  }
+}
+
+/// A fixed bill's state in one period.
+enum BillStatus: Equatable, Sendable {
+  case unpaid
+  case paid(cents: Int)
+  case skipped
 }
