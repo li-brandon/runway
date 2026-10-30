@@ -116,7 +116,8 @@ struct HistoryView: View {
   ) -> some View {
     let stacked = AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
     let inline = AnyLayout(HStackLayout(spacing: 12))
-    let layout = dynamicTypeSize.isAccessibilitySize ? stacked : inline
+    let isStacked = dynamicTypeSize.isAccessibilitySize
+    let layout = isStacked ? stacked : inline
     return VStack(alignment: .leading, spacing: 8) {
       Text(periodTitle(period.period))
         .font(.headline)
@@ -127,21 +128,33 @@ struct HistoryView: View {
         Button {
           periodOffset += 1
         } label: {
-          Label("Earlier period", systemImage: "chevron.left")
-            .frame(minHeight: 44)
+          navigatorLabel("Earlier", systemImage: "chevron.left", isStacked: isStacked)
         }
         .disabled(isOldest)
+        .accessibilityLabel("Earlier period")
         Button {
           periodOffset = max(0, periodOffset - 1)
         } label: {
-          Label("Later period", systemImage: "chevron.right")
-            .frame(minHeight: 44)
+          navigatorLabel("Later", systemImage: "chevron.right", isStacked: isStacked)
         }
         .disabled(period.isCurrent)
+        .accessibilityLabel("Later period")
       }
       .buttonStyle(.bordered)
     }
     .fixedSize(horizontal: false, vertical: true)
+  }
+
+  /// One line at its natural width side by side; full width and free to wrap when stacked.
+  private func navigatorLabel(
+    _ title: String,
+    systemImage: String,
+    isStacked: Bool
+  ) -> some View {
+    Label(title, systemImage: systemImage)
+      .lineLimit(isStacked ? nil : 1)
+      .fixedSize(horizontal: !isStacked, vertical: true)
+      .frame(maxWidth: isStacked ? .infinity : nil, minHeight: 44)
   }
 
   private func summarySection(
@@ -232,6 +245,8 @@ struct HistoryView: View {
     } label: {
       HistoryExpenseRow(expense: expense)
     }
+    // Plain so the row keeps primary and secondary text rather than the accent tint.
+    .buttonStyle(.plain)
     .swipeActions(edge: .trailing) {
       Button("Delete", systemImage: "trash", role: .destructive) {
         delete(expense)
