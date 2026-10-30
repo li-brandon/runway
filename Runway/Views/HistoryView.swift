@@ -69,7 +69,17 @@ struct HistoryView: View {
     )
     let index = min(periodOffset, periods.count - 1)
     let expensesByDay = engine.itemsByDay(expenses, in: periods[index].period) { $0.date }
-    return HistoryPage(periods: periods, index: index, expensesByDay: expensesByDay)
+    // They follow the oldest period, so only its page lists them.
+    var beforeBudget: [Expense] = []
+    if index == periods.count - 1 {
+      beforeBudget = engine.beforeBudget(expenses, budget: BudgetSnapshot(budget)) { $0.date }
+    }
+    return HistoryPage(
+      periods: periods,
+      index: index,
+      expensesByDay: expensesByDay,
+      beforeBudget: beforeBudget
+    )
   }
 
   var body: some View {
@@ -96,6 +106,9 @@ struct HistoryView: View {
               expenseRow(expense)
             }
           }
+        }
+        if !page.beforeBudget.isEmpty {
+          beforeBudgetSection(page.beforeBudget)
         }
       }
       .listStyle(.insetGrouped)
@@ -267,11 +280,29 @@ struct HistoryView: View {
     .accessibilityElement(children: .combine)
   }
 
-  private func expenseRow(_ expense: Expense) -> some View {
+  /// The title is a row, like a day's summary, so scrolling to it can't leave it off screen.
+  private func beforeBudgetSection(_ expenses: [Expense]) -> some View {
+    Section {
+      Text("Before budget")
+        .font(.headline)
+        .accessibilityAddTraits(.isHeader)
+        .id(Self.beforeBudgetID)
+      ForEach(expenses) { expense in
+        expenseRow(expense, showsDay: true)
+          .id(expense.persistentModelID)
+      }
+    } footer: {
+      Text("Dated before your budget started, so they don't count toward any period.")
+    }
+  }
+
+  private static let beforeBudgetID = "before-budget"
+
+  private func expenseRow(_ expense: Expense, showsDay: Bool = false) -> some View {
     Button {
       edit(expense)
     } label: {
-      HistoryExpenseRow(expense: expense)
+      HistoryExpenseRow(expense: expense, showsDay: showsDay)
     }
     // Plain so the row keeps primary and secondary text rather than the accent tint.
     .buttonStyle(.plain)
@@ -357,10 +388,9 @@ struct HistoryView: View {
 
   // MARK: - Actions
 
-  /// Editing keeps an expense inside the period it is dated in.
+  /// Editing keeps an expense inside the period it is dated in, unless it's before the budget.
   private func period(of expense: Expense) -> BudgetPeriod {
-    let snapshot = BudgetSnapshot(budget)
-    return AllowanceEngine(calendar: calendar).period(containing: expense.date, of: snapshot)
+    engine.editablePeriod(of: expense.date, budget: BudgetSnapshot(budget))
   }
 
   private func edit(_ expense: Expense) {
@@ -399,8 +429,11 @@ struct HistoryView: View {
   private func prepareScreenshot(proxy: ScrollViewProxy, days: [HistoryDay]) async {
     guard let screenshotScenario, screenshotScenario.isHistory else { return }
     let today = calendar.startOfDay(for: now)
-    if screenshotScenario == .historyPeriodSummary || screenshotScenario == .history500 {
+    switch screenshotScenario {
+    case .historyPeriodSummary, .history500, .historyBeforeBudget:
       periodOffset = 1
+    default:
+      break
     }
     // Let the push from Today finish before presenting a sheet or scrolling.
     do {
@@ -415,6 +448,13 @@ struct HistoryView: View {
     let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
     if options.screenshotScrollTo == "categories" {
       proxy.scrollTo("categories", anchor: .top)
+    } else if options.screenshotScrollTo == "before-budget",
+      let last = page.beforeBudget.last
+    {
+      // The list's end, so the section's footer shows even when large text fills the screen.
+      proxy.scrollTo(last.persistentModelID, anchor: .top)
+    } else if screenshotScenario == .historyBeforeBudget {
+      proxy.scrollTo(Self.beforeBudgetID, anchor: .top)
     } else if screenshotScenario == .historyList, let first = days.first {
       proxy.scrollTo(first.date, anchor: .top)
     } else if screenshotScenario == .history500, let oldest = page.selected.days.last {
@@ -424,11 +464,13 @@ struct HistoryView: View {
   }
 }
 
-/// One render of History: every period newest first, the selected one, and its expenses by day.
+/// One render of History: every period newest first, the selected one, its expenses by day, and,
+/// on the oldest period's page, the expenses before the budget's start.
 struct HistoryPage {
   let periods: [HistoryPeriod<PersistentIdentifier?>]
   let index: Int
   let expensesByDay: [Date: [Expense]]
+  let beforeBudget: [Expense]
 
   var selected: HistoryPeriod<PersistentIdentifier?> { periods[index] }
 }
@@ -467,9 +509,11 @@ struct OverUnderLabel: View {
   }
 }
 
-/// One expense in History: category, amount (with a Refund label), note, and time.
+/// One expense in History: category, amount (with a Refund label), note, and time. Rows with no
+/// day above them also show the date.
 struct HistoryExpenseRow: View {
   let expense: Expense
+  var showsDay = false
 
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -489,9 +533,15 @@ struct HistoryExpenseRow: View {
         Text(expense.note)
           .foregroundStyle(.secondary)
       }
-      Text(expense.date, format: .dateTime.hour().minute())
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      Group {
+        if showsDay {
+          Text(expense.date, format: .dateTime.month(.abbreviated).day().year().hour().minute())
+        } else {
+          Text(expense.date, format: .dateTime.hour().minute())
+        }
+      }
+      .font(.caption)
+      .foregroundStyle(.secondary)
     }
     .foregroundStyle(.primary)
     .fixedSize(horizontal: false, vertical: true)

@@ -335,6 +335,180 @@ struct HistoryEditingTests {
     #expect(try savedExpenses().isEmpty)
   }
 
+  /// What `HistoryView` renders from saved expenses, sorted like its query.
+  func page(periodOffset: Int = 0, now: Date) throws -> HistoryPage {
+    HistoryView.makePage(
+      budget: budget,
+      expenses: try context.fetch(
+        FetchDescriptor<Expense>(
+          sortBy: [
+            SortDescriptor(\.date, order: .reverse),
+            SortDescriptor(\.createdAt, order: .reverse),
+          ]
+        )
+      ),
+      periodOffset: periodOffset,
+      now: now,
+      calendar: calendar
+    )
+  }
+
+  func editablePeriod(of expense: Expense) -> BudgetPeriod {
+    HistoryEngine(calendar: calendar).editablePeriod(
+      of: expense.date,
+      budget: BudgetSnapshot(budget)
+    )
+  }
+
+  /// What reached the store, read through a new context.
+  func savedInFreshContext() throws -> [(note: String, amountCents: Int, date: Date)] {
+    let fresh = ModelContext(container)
+    let saved = try fresh.fetch(FetchDescriptor<Expense>())
+    return saved.map { ($0.note, $0.amountCents, $0.date) }
+  }
+
+  @Test("Moving the start later keeps earlier expenses visible, editable, and deletable")
+  func moveStartLater() throws {
+    // On the budget's first day no period has been used yet, so the move replaces the schedule.
+    let firstDay = calendar.date(2026, 6, 1, 12)
+    let coffeeDate = calendar.date(2026, 6, 1, 8)
+    let lunchDate = calendar.date(2026, 6, 1, 9)
+    let dinnerDate = calendar.date(2026, 6, 1, 10)
+    let coffee = try service.createExpense(
+      amountCents: 1_000,
+      note: "Coffee",
+      date: coffeeDate,
+      now: coffeeDate
+    )
+    let lunch = try service.createExpense(
+      amountCents: 2_000,
+      note: "Lunch",
+      date: lunchDate,
+      now: lunchDate
+    )
+    let dinner = try service.createExpense(
+      amountCents: 3_000,
+      note: "Dinner",
+      date: dinnerDate,
+      now: dinnerDate
+    )
+    try context.save()
+    #expect(try page(now: firstDay).beforeBudget.isEmpty)
+
+    var budgetDraft = BudgetDraft(budget: budget, locale: Money.fixedLocale)
+    budgetDraft.periodStart = calendar.date(2026, 6, 3)
+    #expect(budgetDraft.apply(to: budget, now: firstDay, calendar: calendar))
+    try context.save()
+    #expect(budget.periodStart == calendar.date(2026, 6, 3))
+    #expect(budget.scheduleChanges.isEmpty)
+
+    let now = calendar.date(2026, 6, 4, 12)
+    let moved = try page(now: now)
+    #expect(moved.beforeBudget.map(\.note) == ["Dinner", "Lunch", "Coffee"])
+    #expect(moved.selected.spentCents == 0)
+    #expect(moved.selected.categories.isEmpty)
+    #expect(try today(now: now).allowanceTodayCents == 70_000 / 6)
+
+    // Changing only the amount keeps the date, so it stays out of every period.
+    var amountDraft = ExpenseDraft(expense: dinner)
+    amountDraft.locale = Money.fixedLocale
+    amountDraft.amountText = "35"
+    let dinnerPeriod = editablePeriod(of: dinner)
+    #expect(dinnerPeriod == .beforeBudget)
+    #expect(try amountDraft.update(dinner, using: service, period: dinnerPeriod, now: now))
+    try context.save()
+    let savedDinner = try #require(try savedInFreshContext().first { $0.note == "Dinner" })
+    #expect(savedDinner.amountCents == 3_500)
+    #expect(savedDinner.date == dinnerDate)
+    let amountEdited = try page(now: now)
+    #expect(amountEdited.beforeBudget.map(\.note) == ["Dinner", "Lunch", "Coffee"])
+    #expect(amountEdited.selected.spentCents == 0)
+
+    // Choosing a date in the budget moves it into that period.
+    var dateDraft = ExpenseDraft(expense: lunch)
+    dateDraft.locale = Money.fixedLocale
+    dateDraft.date = calendar.date(2026, 6, 3, 14)
+    let lunchPeriod = editablePeriod(of: lunch)
+    #expect(try dateDraft.update(lunch, using: service, period: lunchPeriod, now: now))
+    try context.save()
+    let savedLunch = try #require(try savedInFreshContext().first { $0.note == "Lunch" })
+    #expect(savedLunch.date == calendar.date(2026, 6, 3, 14))
+    let dateEdited = try page(now: now)
+    #expect(dateEdited.beforeBudget.map(\.note) == ["Dinner", "Coffee"])
+    #expect(dateEdited.selected.spentCents == 2_000)
+    #expect(dateEdited.expensesByDay[calendar.date(2026, 6, 3)]?.map(\.note) == ["Lunch"])
+    #expect(editablePeriod(of: lunch).start == calendar.date(2026, 6, 3))
+
+    // Delete and undo work as they do for any other expense.
+    var slot = ExpenseUndoSlot()
+    try slot.delete(coffee, in: context, now: now)
+    #expect(try savedInFreshContext().map(\.note).sorted() == ["Dinner", "Lunch"])
+    #expect(try page(now: now).beforeBudget.map(\.note) == ["Dinner"])
+    let restored = try #require(try slot.undo(in: context, now: now.addingTimeInterval(1)))
+    #expect(restored.date == coffeeDate)
+    #expect(try page(now: now).beforeBudget.map(\.note) == ["Dinner", "Coffee"])
+    #expect(try page(now: now).selected.spentCents == 2_000)
+
+    try slot.delete(restored, in: context, now: now)
+    #expect(try savedInFreshContext().map(\.note).sorted() == ["Dinner", "Lunch"])
+    #expect(try page(now: now).beforeBudget.map(\.note) == ["Dinner"])
+  }
+
+  @Test("Moving the start once the budget has begun leaves earlier expenses in their periods")
+  func moveStartAfterBudgetBegan() throws {
+    let lunchDate = calendar.date(2026, 6, 1, 12)
+    try service.createExpense(amountCents: 2_000, note: "Lunch", date: lunchDate, now: lunchDate)
+    try context.save()
+
+    var budgetDraft = BudgetDraft(budget: budget, locale: Money.fixedLocale)
+    budgetDraft.periodStart = calendar.date(2026, 6, 5)
+    let now = calendar.date(2026, 6, 3, 12)
+    #expect(budgetDraft.apply(to: budget, now: now, calendar: calendar))
+    try context.save()
+    #expect(budget.scheduleChanges.count == 1)
+
+    let oldest = try page(periodOffset: 1, now: now)
+    #expect(oldest.beforeBudget.isEmpty)
+    #expect(oldest.selected.spentCents == 2_000)
+  }
+
+  @Test("The Before budget list shows on the oldest period's page only")
+  func beforeBudgetOnOldestPage() throws {
+    let date = calendar.date(2026, 5, 30, 9)
+    try service.createExpense(amountCents: 1_000, note: "Early", date: date, now: date)
+    try context.save()
+    let now = calendar.date(2026, 6, 10, 12)
+    #expect(try page(periodOffset: 0, now: now).beforeBudget.isEmpty)
+    #expect(try page(periodOffset: 1, now: now).beforeBudget.map(\.note) == ["Early"])
+    // An offset past the oldest period clamps to it.
+    #expect(try page(periodOffset: 5, now: now).beforeBudget.map(\.note) == ["Early"])
+  }
+
+  @Test("The before-budget screenshot seeds three earlier expenses without changing the figures")
+  func beforeBudgetScreenshotSeed() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    let seedContainer = try RunwayModelContainer.make(inMemory: true)
+    let seeded = ModelContext(seedContainer)
+    let budget = try #require(
+      try ScreenshotScenario.historyBeforeBudget.seed(into: seeded, now: now, calendar: calendar)
+    )
+    let shown = HistoryView.makePage(
+      budget: budget,
+      expenses: try seeded.fetch(FetchDescriptor<Expense>()),
+      periodOffset: 1,
+      now: now,
+      calendar: calendar
+    )
+    #expect(
+      shown.beforeBudget.map(\.note) == ["Moving truck", "Returned lamp", "Housewarming dinner"]
+    )
+    #expect(shown.beforeBudget.contains { $0.amountCents < 0 })
+    // The same figures as `history-list`.
+    #expect(shown.periods.map(\.days.count) == [4, 14])
+    #expect(shown.periods[1].spentCents == 78_610)
+    #expect(shown.periods[1].carryOutCents == 31_390)
+  }
+
   @Test("History screenshots seed two biweekly periods with carryover and some days over")
   func screenshotSeed() throws {
     let now = calendar.date(2026, 6, 10, 12)

@@ -54,6 +54,77 @@ struct HistoryEngineTests {
     }
   }
 
+  @Test("Expenses before the start are in beforeBudget, in no period, and change no figures")
+  func beforeBudgetExpenses() {
+    let inBudget = [
+      historyExpense(12_000, calendar.date(2026, 6, 1), "food"),
+      historyExpense(5_000, calendar.date(2026, 6, 9, 18), "fun"),
+    ]
+    let earlier = [
+      historyExpense(40_000, calendar.date(2026, 5, 20, 9), "rent"),
+      // The last second before local midnight on the first day.
+      historyExpense(-1_000, calendar.date(2026, 5, 31, 23, 59, 59), "food"),
+      historyExpense(90_000, calendar.date(2026, 5, 25, 9), "fun"),
+    ]
+    let all = inBudget + earlier
+    let now = calendar.date(2026, 6, 10, 12)
+
+    let periods = engine.periods(budget: weekly, expenses: all, now: now)
+    #expect(periods == engine.periods(budget: weekly, expenses: inBudget, now: now))
+    #expect(periods.count == 2)
+    #expect(periods.map(\.spentCents) == [5_000, 12_000])
+    #expect(periods[1].carryOutCents == 58_000)
+    #expect(periods[0].carryInCents == 58_000)
+    #expect(!periods[1].categories.contains { $0.categoryID == "rent" })
+
+    let before = engine.beforeBudget(all, budget: weekly) { $0.date }
+    #expect(before == [earlier[1], earlier[2], earlier[0]])
+
+    // Today's figures agree, so nothing counts them there either.
+    let allowance = AllowanceEngine(calendar: calendar)
+    let allSnapshots = all.map { expense($0.amountCents, $0.date) }
+    let inBudgetSnapshots = inBudget.map { expense($0.amountCents, $0.date) }
+    let result = allowance.currentAllowance(budget: weekly, expenses: allSnapshots, now: now)
+    let baseline = allowance.currentAllowance(
+      budget: weekly,
+      expenses: inBudgetSnapshots,
+      now: now
+    )
+    #expect(result == baseline)
+  }
+
+  @Test("Before the budget means before the first period, even after a schedule change")
+  func beforeBudgetAfterScheduleChange() {
+    // The Monday anchor stays the first period's start after moving to Friday paydays.
+    let changed = weekly.changingSchedule(
+      to: .weekly,
+      start: calendar.date(2026, 6, 5),
+      now: calendar.date(2026, 6, 3, 12),
+      calendar: calendar
+    )
+    let expenses = [
+      historyExpense(1_000, calendar.date(2026, 5, 31, 12)),
+      historyExpense(2_000, calendar.date(2026, 6, 2, 12)),
+    ]
+    let before = engine.beforeBudget(expenses, budget: changed) { $0.date }
+    #expect(before == [expenses[0]])
+    #expect(engine.editablePeriod(of: expenses[0].date, budget: changed) == .beforeBudget)
+    let own = engine.editablePeriod(of: expenses[1].date, budget: changed)
+    #expect(own.start == calendar.date(2026, 6, 1))
+    #expect(own.end == calendar.date(2026, 6, 3))
+  }
+
+  @Test("An expense before the budget edits to any date through now, keeping its own by default")
+  func beforeBudgetEditDates() {
+    let now = calendar.date(2026, 6, 10, 12)
+    var draft = ExpenseDraft(now: calendar.date(2026, 5, 20, 9))
+    #expect(draft.clampedDate(in: .beforeBudget, now: now) == draft.date)
+    draft.date = calendar.date(2026, 6, 3, 9)
+    #expect(draft.clampedDate(in: .beforeBudget, now: now) == draft.date)
+    draft.date = calendar.date(2026, 6, 11, 9)
+    #expect(draft.clampedDate(in: .beforeBudget, now: now) == now)
+  }
+
   @Test("Day rows show allowance, spending, and over/under through today, newest first")
   func dayRows() {
     let expenses = [

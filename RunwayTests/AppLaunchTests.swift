@@ -91,6 +91,8 @@ struct AppLaunchTests {
     #expect(LaunchOptions(arguments: arguments + ["today"]).screenshotScrollTo == "today")
     #expect(LaunchOptions(arguments: arguments + ["bills"]).screenshotScrollTo == "bills")
     #expect(LaunchOptions(arguments: arguments + ["extras"]).screenshotScrollTo == "extras")
+    let beforeBudget = LaunchOptions(arguments: arguments + ["before-budget"])
+    #expect(beforeBudget.screenshotScrollTo == "before-budget")
     #expect(LaunchOptions(arguments: arguments + ["unknown"]).screenshotScrollTo == nil)
     #expect(LaunchOptions(arguments: arguments).screenshotScrollTo == nil)
     #expect(LaunchOptions(arguments: ["Runway"]).screenshotScrollTo == nil)
@@ -140,6 +142,7 @@ struct AppLaunchTests {
         "history-period-summary",
         "history-edit",
         "history-500",
+        "history-before-budget",
         "budget-change-amounts",
         "budget-change-period",
         "budget-change-carryover",
@@ -276,6 +279,7 @@ struct AppLaunchTests {
         .historyPeriodSummary: 110_000,
         .historyEdit: 110_000,
         .history500: 110_000,
+        .historyBeforeBudget: 110_000,
         .budgetChangeAmounts: 99_500,
         .budgetChangePeriod: 99_500,
         .budgetChangeCarryover: 99_500,
