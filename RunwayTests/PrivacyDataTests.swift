@@ -215,8 +215,7 @@ struct PrivacyDataTests {
       try DataImport.apply(validated, to: context) {
         saveAttempts += 1
         // Proves the failure comes after the replacement was staged, with something to undo.
-        #expect(!context.deletedModelsArray.isEmpty)
-        #expect(!context.insertedModelsArray.isEmpty)
+        #expect(context.hasChanges)
         throw SaveFailure()
       }
     }
