@@ -88,6 +88,8 @@ struct AppLaunchTests {
     #expect(categories.screenshotScrollTo == "categories")
     let carryover = LaunchOptions(arguments: arguments + ["carryover"])
     #expect(carryover.screenshotScrollTo == "carryover")
+    #expect(LaunchOptions(arguments: arguments + ["today"]).screenshotScrollTo == "today")
+    #expect(LaunchOptions(arguments: arguments + ["bills"]).screenshotScrollTo == "bills")
     #expect(LaunchOptions(arguments: arguments + ["unknown"]).screenshotScrollTo == nil)
     #expect(LaunchOptions(arguments: arguments).screenshotScrollTo == nil)
     #expect(LaunchOptions(arguments: ["Runway"]).screenshotScrollTo == nil)

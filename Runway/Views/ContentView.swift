@@ -41,92 +41,123 @@ struct ContentView: View {
     _showsPeriodMoney = State(initialValue: screenshotScenario == .budgetChangeBills)
   }
 
+  /// Shrinks the amount in steps down to the scale floor on one line, and only wraps when
+  /// even the floor doesn't fit, so ordinary amounts never break mid-number.
+  private var remainingAmount: some View {
+    let text = Money.format(cents: allowance.remainingTodayCents)
+    let size = min(amountSize, 96)
+    let steps: [CGFloat] = [1, 0.85, TextScaling.minimumFactor]
+    return ViewThatFits(in: .horizontal) {
+      ForEach(steps, id: \.self) { step in
+        Text(text)
+          .font(.system(size: size * step, weight: .bold, design: .rounded))
+          .lineLimit(1)
+          .fixedSize(horizontal: true, vertical: false)
+      }
+      Text(text)
+        .font(
+          .system(size: size * TextScaling.minimumFactor, weight: .bold, design: .rounded)
+        )
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
   var body: some View {
     NavigationStack {
-      ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          spendingSummary
+      ScrollViewReader { proxy in
+        ScrollView {
+          VStack(alignment: .leading, spacing: 16) {
+            spendingSummary
 
-          VStack(alignment: .leading, spacing: 8) {
-            Text("Left to spend today")
-              .font(.footnote)
-            Text(Money.format(cents: allowance.remainingTodayCents))
-              .font(.system(size: min(amountSize, 96), weight: .bold, design: .rounded))
-              .lineLimit(1)
-              .minimumScaleFactor(0.1)
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .foregroundStyle(statusColor)
-              .accessibilityLabel("Left to spend today")
-              .accessibilityValue(Money.format(cents: allowance.remainingTodayCents))
-            Label(status.title, systemImage: status.symbol)
-              .font(.caption)
-              .foregroundStyle(statusColor)
-            Text(displayNow, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-              .font(.caption2)
-              .foregroundStyle(.secondary)
-            Text("Spent: \(Money.format(cents: allowance.spentTodayCents))")
-              .font(.footnote)
-              .accessibilityLabel("Spent today")
-              .accessibilityValue(Money.format(cents: allowance.spentTodayCents))
-            Text("Allowance: \(Money.format(cents: allowance.allowanceTodayCents))")
-              .font(.footnote)
-              .accessibilityLabel("Today's allowance")
-              .accessibilityValue(Money.format(cents: allowance.allowanceTodayCents))
-            Button {
-              showsQuickLog = true
-            } label: {
-              Label("Log Expense", systemImage: "plus")
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .multilineTextAlignment(.center)
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityHint("Opens the expense amount keypad.")
-          }
-          .fixedSize(horizontal: false, vertical: true)
-          .padding()
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .background(
-            Color(.secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 16)
-          )
-
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Remaining this period: \(Money.format(cents: allowance.remainingPeriodCents))")
-            Text("\(allowance.daysLeft) days left, including today")
-            if showsCarryIn {
-              Text("Carry-in from last period: \(Money.format(cents: allowance.carryInCents))")
-            }
-            if allowance.extraCents != 0 {
-              Text("Extra money this period: \(Money.format(cents: allowance.extraCents))")
-            }
-            if let pendingCarryoverText {
-              Text(pendingCarryoverText)
-            }
-          }
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-
-          periodActions
-
-          VStack(alignment: .leading, spacing: 12) {
-            Text("Today's expenses")
-              .font(.headline)
-            if expensesToday.isEmpty {
-              Text("Nothing logged today.")
+            VStack(alignment: .leading, spacing: 8) {
+              Text("Left to spend today")
+                .font(.footnote)
+              remainingAmount
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(statusColor)
+                .accessibilityLabel("Left to spend today")
+                .accessibilityValue(Money.format(cents: allowance.remainingTodayCents))
+              Label(status.title, systemImage: status.symbol)
+                .font(.caption)
+                .foregroundStyle(statusColor)
+              Text(displayNow, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
+                .font(.caption2)
                 .foregroundStyle(.secondary)
-            } else {
-              ForEach(expensesToday) { expense in
-                expenseRow(expense)
-                Divider()
+              Text("Spent: \(Money.format(cents: allowance.spentTodayCents))")
+                .font(.footnote)
+                .accessibilityLabel("Spent today")
+                .accessibilityValue(Money.format(cents: allowance.spentTodayCents))
+              Text("Allowance: \(Money.format(cents: allowance.allowanceTodayCents))")
+                .font(.footnote)
+                .accessibilityLabel("Today's allowance")
+                .accessibilityValue(Money.format(cents: allowance.allowanceTodayCents))
+              Button {
+                showsQuickLog = true
+              } label: {
+                Label("Log Expense", systemImage: "plus")
+                  .frame(maxWidth: .infinity, minHeight: 44)
+                  .multilineTextAlignment(.center)
+              }
+              .buttonStyle(.borderedProminent)
+              .accessibilityHint("Opens the expense amount keypad.")
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+              Color(.secondarySystemGroupedBackground),
+              in: RoundedRectangle(cornerRadius: 16)
+            )
+            .id("today")
+
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Remaining this period: \(Money.format(cents: allowance.remainingPeriodCents))")
+              Text("\(allowance.daysLeft) days left, including today")
+              if showsCarryIn {
+                Text("Carry-in from last period: \(Money.format(cents: allowance.carryInCents))")
+              }
+              if allowance.extraCents != 0 {
+                Text("Extra money this period: \(Money.format(cents: allowance.extraCents))")
+              }
+              if let pendingCarryoverText {
+                Text(pendingCarryoverText)
               }
             }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            periodActions
+
+            VStack(alignment: .leading, spacing: 12) {
+              Text("Today's expenses")
+                .font(.headline)
+              if expensesToday.isEmpty {
+                Text("Nothing logged today.")
+                  .foregroundStyle(.secondary)
+              } else {
+                ForEach(expensesToday) { expense in
+                  expenseRow(expense)
+                  Divider()
+                }
+              }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
           }
-          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 16)
+          .padding(.vertical)
+          .padding(.bottom, dynamicTypeSize.isAccessibilitySize ? 32 : 16)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical)
-        .padding(.bottom, dynamicTypeSize.isAccessibilitySize ? 32 : 16)
+        .task {
+          let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
+          guard options.screenshotScrollTo == "today" else { return }
+          do {
+            try await Task.sleep(for: .milliseconds(300))
+          } catch {
+            return
+          }
+          proxy.scrollTo("today", anchor: .top)
+        }
       }
       .background(Color(.systemGroupedBackground))
       .safeAreaInset(edge: .bottom) {
@@ -252,7 +283,7 @@ struct ContentView: View {
         ForEach(SpendingView.allCases, id: \.self) { view in
           Text(view.rawValue)
             .lineLimit(1)
-            .minimumScaleFactor(0.7)
+            .minimumScaleFactor(TextScaling.minimumFactor)
             .tag(view)
         }
       }
@@ -272,7 +303,7 @@ struct ContentView: View {
       Text(Money.format(cents: summary.spentCents))
         .font(.largeTitle.bold())
         .lineLimit(2)
-        .minimumScaleFactor(0.7)
+        .minimumScaleFactor(TextScaling.minimumFactor)
       if spendingView != .day {
         Text("Budget for these days: \(Money.format(cents: summary.budgetCents))")
           .font(.footnote)
