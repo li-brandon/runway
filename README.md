@@ -126,7 +126,9 @@ category (Other if the category was deleted meanwhile), recreated through
 Expenses dated before the start of the budget's first period appear in a **Before budget** section
 below the oldest period, newest first, and edit, delete, and undo like any other expense. They
 count toward no period's totals or carryover. Their date can be any day through today, and choosing
-one in the budget moves the expense into that period.
+one in the budget moves the expense into that period. Extra money dated before the start is listed
+there too, marked **Extra money**, and follows the same rules, except that deleting it has no Undo,
+as on This Period. Saving it without choosing a new date keeps its date.
 
 Nothing per day is stored. `HistoryEngine` (`Runway/Engine`) derives every figure from the budget
 and expenses with `AllowanceEngine`'s rules, so an edit or delete updates later days, carryover,
@@ -156,8 +158,8 @@ date.
 History scenarios use the same date with two biweekly periods of sample spending starting May 24:
 `history-list` (the current period, scrolled to its days), `history-period-summary` (the previous
 period's summary, carryover, and categories), and `history-edit` (the edit sheet for yesterday's
-latest expense), and `history-before-budget` (the oldest period's page, scrolled to expenses dated
-before the budget's start). `-RunwayScreenshotScrollTo categories` scrolls History to its category
+latest expense), and `history-before-budget` (the oldest period's page, scrolled to expenses and
+extra money dated before the budget's start). `-RunwayScreenshotScrollTo categories` scrolls History to its category
 totals, `before-budget` scrolls it to the end of its Before budget section, `today` scrolls Today
 to what's left to spend, `bills` scrolls This Period to its bills, and `extras` scrolls it to the
 end of its last extra money row.

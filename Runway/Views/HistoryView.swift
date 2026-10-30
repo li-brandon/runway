@@ -26,6 +26,7 @@ struct HistoryView: View {
   /// 0 shows the current period; each step back shows the one before it.
   @State private var periodOffset = 0
   @State private var editing: Expense?
+  @State private var editingExtra: ExtraMoney?
   @State private var editNow = Date.now
   /// Only the latest delete can be undone; see `ExpenseUndoSlot`.
   @State private var undoSlot = ExpenseUndoSlot()
@@ -70,9 +71,14 @@ struct HistoryView: View {
     let index = min(periodOffset, periods.count - 1)
     let expensesByDay = engine.itemsByDay(expenses, in: periods[index].period) { $0.date }
     // They follow the oldest period, so only its page lists them.
-    var beforeBudget: [Expense] = []
+    var beforeBudget: [BeforeBudgetItem] = []
     if index == periods.count - 1 {
-      beforeBudget = engine.beforeBudget(expenses, budget: BudgetSnapshot(budget)) { $0.date }
+      // The relationship has no order, so money on the same day needs one to keep rows in place.
+      let extras = budget.extraMoney.sorted {
+        ($0.note, $0.amountCents) < ($1.note, $1.amountCents)
+      }
+      let items = expenses.map(BeforeBudgetItem.expense) + extras.map(BeforeBudgetItem.extraMoney)
+      beforeBudget = engine.beforeBudget(items, budget: BudgetSnapshot(budget)) { $0.date }
     }
     return HistoryPage(
       periods: periods,
@@ -134,12 +140,20 @@ struct HistoryView: View {
     .sheet(item: $editing) { expense in
       ExpenseEditView(
         expense: expense,
-        period: period(of: expense),
+        period: editablePeriod(of: expense.date),
         now: editNow,
         onDelete: delete
       )
     }
-    .alert("Couldn't Change Expense", isPresented: showsError) {
+    .sheet(item: $editingExtra) { extra in
+      ExtraMoneyEditView(
+        extra: extra,
+        period: editablePeriod(of: extra.date),
+        now: editNow,
+        onDelete: delete
+      )
+    }
+    .alert("Couldn't Save Your Change", isPresented: showsError) {
       Button("OK", role: .cancel) { errorMessage = nil }
     } message: {
       Text(errorMessage ?? "")
@@ -281,15 +295,15 @@ struct HistoryView: View {
   }
 
   /// The title is a row, like a day's summary, so scrolling to it can't leave it off screen.
-  private func beforeBudgetSection(_ expenses: [Expense]) -> some View {
+  private func beforeBudgetSection(_ items: [BeforeBudgetItem]) -> some View {
     Section {
       Text("Before budget")
         .font(.headline)
         .accessibilityAddTraits(.isHeader)
         .id(Self.beforeBudgetID)
-      ForEach(expenses) { expense in
-        expenseRow(expense, showsDay: true)
-          .id(expense.persistentModelID)
+      ForEach(items) { item in
+        beforeBudgetRow(item)
+          .id(item.id)
       }
     } footer: {
       Text("Dated before your budget started, so they don't count toward any period.")
@@ -297,6 +311,36 @@ struct HistoryView: View {
   }
 
   private static let beforeBudgetID = "before-budget"
+
+  @ViewBuilder
+  private func beforeBudgetRow(_ item: BeforeBudgetItem) -> some View {
+    switch item {
+    case .expense(let expense):
+      expenseRow(expense, showsDay: true)
+    case .extraMoney(let extra):
+      extraMoneyRow(extra)
+    }
+  }
+
+  private func extraMoneyRow(_ extra: ExtraMoney) -> some View {
+    Button {
+      edit(extra)
+    } label: {
+      HistoryExtraMoneyRow(extra: extra)
+    }
+    // Plain so the row keeps primary and secondary text rather than the accent tint.
+    .buttonStyle(.plain)
+    .swipeActions(edge: .trailing) {
+      Button("Delete", systemImage: "trash", role: .destructive) {
+        delete(extra)
+      }
+      Button("Edit", systemImage: "pencil") {
+        edit(extra)
+      }
+      .tint(.blue)
+    }
+    .accessibilityHint("Opens the extra money to edit or delete it.")
+  }
 
   private func expenseRow(_ expense: Expense, showsDay: Bool = false) -> some View {
     Button {
@@ -388,9 +432,26 @@ struct HistoryView: View {
 
   // MARK: - Actions
 
-  /// Editing keeps an expense inside the period it is dated in, unless it's before the budget.
-  private func period(of expense: Expense) -> BudgetPeriod {
-    engine.editablePeriod(of: expense.date, budget: BudgetSnapshot(budget))
+  /// Editing keeps an item inside the period it is dated in, unless it's before the budget.
+  private func editablePeriod(of date: Date) -> BudgetPeriod {
+    engine.editablePeriod(of: date, budget: BudgetSnapshot(budget))
+  }
+
+  private func edit(_ extra: ExtraMoney) {
+    editNow = screenshotScenario?.todayDate ?? .now
+    editingExtra = extra
+  }
+
+  /// Like This Period's delete, with no undo.
+  private func delete(_ extra: ExtraMoney) {
+    editingExtra = nil
+    budget.removeExtraMoney(extra)
+    do {
+      try modelContext.save()
+    } catch {
+      modelContext.rollback()
+      errorMessage = error.localizedDescription
+    }
   }
 
   private func edit(_ expense: Expense) {
@@ -454,13 +515,13 @@ struct HistoryView: View {
       // The list's last row at the top, so the section's footer shows below it even when large
       // text fills the screen. Section footers aren't scroll targets, so scroll to the row, then
       // repeat once the lazily built rows above it have their real heights.
-      proxy.scrollTo(last.persistentModelID, anchor: .top)
+      proxy.scrollTo(last.id, anchor: .top)
       do {
         try await Task.sleep(for: .milliseconds(800))
       } catch {
         return
       }
-      proxy.scrollTo(last.persistentModelID, anchor: .top)
+      proxy.scrollTo(last.id, anchor: .top)
     } else if screenshotScenario == .historyBeforeBudget {
       proxy.scrollTo(Self.beforeBudgetID, anchor: .top)
     } else if screenshotScenario == .historyList, let first = days.first {
@@ -473,14 +534,48 @@ struct HistoryView: View {
 }
 
 /// One render of History: every period newest first, the selected one, its expenses by day, and,
-/// on the oldest period's page, the expenses before the budget's start.
+/// on the oldest period's page, the expenses and extra money before the budget's start.
 struct HistoryPage {
   let periods: [HistoryPeriod<PersistentIdentifier?>]
   let index: Int
   let expensesByDay: [Date: [Expense]]
-  let beforeBudget: [Expense]
+  let beforeBudget: [BeforeBudgetItem]
 
   var selected: HistoryPeriod<PersistentIdentifier?> { periods[index] }
+}
+
+/// One row of the Before budget section.
+enum BeforeBudgetItem: Identifiable {
+  case expense(Expense)
+  case extraMoney(ExtraMoney)
+
+  var id: PersistentIdentifier {
+    switch self {
+    case .expense(let expense): expense.persistentModelID
+    case .extraMoney(let extra): extra.persistentModelID
+    }
+  }
+
+  var date: Date {
+    switch self {
+    case .expense(let expense): expense.date
+    case .extraMoney(let extra): extra.date
+    }
+  }
+
+  var note: String {
+    switch self {
+    case .expense(let expense): expense.note
+    case .extraMoney(let extra): extra.note
+    }
+  }
+
+  var amountCents: Int {
+    switch self {
+    case .expense(let expense): expense.amountCents
+    case .extraMoney(let extra): extra.amountCents
+    }
+  }
 }
 
 /// Over or under with a symbol and words as well as color.
@@ -576,5 +671,50 @@ struct HistoryExpenseRow: View {
       Text(Money.format(cents: expense.amountCents))
         .fontWeight(.semibold)
     }
+  }
+}
+
+/// Extra money in History: marked with a symbol and words where an expense shows its category,
+/// with the note and day. It has no time of day, so only the date shows.
+struct HistoryExtraMoneyRow: View {
+  let extra: ExtraMoney
+
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      if dynamicTypeSize.isAccessibilitySize {
+        title
+        amount
+      } else {
+        HStack(alignment: .firstTextBaseline) {
+          title
+          Spacer(minLength: 12)
+          amount
+        }
+      }
+      if !extra.note.isEmpty {
+        Text(extra.note)
+          .foregroundStyle(.secondary)
+      }
+      Text(extra.date, format: .dateTime.month(.abbreviated).day().year())
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .foregroundStyle(.primary)
+    .fixedSize(horizontal: false, vertical: true)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .contentShape(Rectangle())
+    .accessibilityElement(children: .combine)
+  }
+
+  private var title: some View {
+    Label("Extra money", systemImage: "plus.circle")
+  }
+
+  private var amount: some View {
+    Text(Money.format(cents: extra.amountCents))
+      .fontWeight(.semibold)
+      .minimumScaleFactor(TextScaling.minimumFactor)
   }
 }

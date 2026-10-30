@@ -99,7 +99,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case historyEdit = "history-edit"
   /// The previous period with 500 expenses, scrolled to its oldest day, to check the list scrolls.
   case history500 = "history-500"
-  /// The oldest period's page, scrolled to the expenses dated before the budget's start.
+  /// The oldest period's page, scrolled to the expenses and money dated before the budget's start.
   case historyBeforeBudget = "history-before-budget"
 
   /// Budget editing with spendable raised mid-period, noting that new amounts apply from today.
@@ -369,7 +369,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   /// completed one starting 17 days before today, with some days over, and the current one
   /// through this morning. Includes a refund. `history-500` instead spreads 500 expenses over the
   /// completed period, about 36 a day from 7:00 every 20 minutes, and none in the current one.
-  /// `history-before-budget` adds three expenses in the days before the budget's start.
+  /// `history-before-budget` adds three expenses and a gift in the days before the budget's start.
   private func seedHistory(
     into context: ModelContext,
     now: Date,
@@ -442,6 +442,12 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
           now: date
         )
       }
+      budget.addExtraMoney(
+        cents: 25_000,
+        note: "Moving-in gift",
+        now: calendar.date(byAdding: .day, value: -3, to: start) ?? start,
+        calendar: calendar
+      )
     }
     try context.save()
     return budget

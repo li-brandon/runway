@@ -484,7 +484,7 @@ struct HistoryEditingTests {
     #expect(try page(periodOffset: 5, now: now).beforeBudget.map(\.note) == ["Early"])
   }
 
-  @Test("The before-budget screenshot seeds three earlier expenses without changing the figures")
+  @Test("The before-budget screenshot seeds earlier expenses and money, changing no figures")
   func beforeBudgetScreenshotSeed() throws {
     let now = calendar.date(2026, 6, 10, 12)
     let seedContainer = try RunwayModelContainer.make(inMemory: true)
@@ -500,13 +500,262 @@ struct HistoryEditingTests {
       calendar: calendar
     )
     #expect(
-      shown.beforeBudget.map(\.note) == ["Moving truck", "Returned lamp", "Housewarming dinner"]
+      shown.beforeBudget.map(\.note) == [
+        "Moving truck",
+        "Moving-in gift",
+        "Returned lamp",
+        "Housewarming dinner",
+      ]
     )
     #expect(shown.beforeBudget.contains { $0.amountCents < 0 })
+    #expect(shown.beforeBudget[1].amountCents == 25_000)
+    #expect(shown.periods.map(\.extraCents) == [0, 0])
     // The same figures as `history-list`.
     #expect(shown.periods.map(\.days.count) == [4, 14])
     #expect(shown.periods[1].spentCents == 78_610)
     #expect(shown.periods[1].carryOutCents == 31_390)
+  }
+
+  // MARK: - Extra money before the budget
+
+  /// Extra money saved on `date`'s day.
+  @discardableResult
+  func addExtra(_ cents: Int, note: String, on date: Date) throws -> ExtraMoney {
+    let extra = budget.addExtraMoney(cents: cents, note: note, now: date, calendar: calendar)
+    try context.save()
+    return extra
+  }
+
+  func editablePeriod(of extra: ExtraMoney) -> BudgetPeriod {
+    HistoryEngine(calendar: calendar).editablePeriod(
+      of: extra.date,
+      budget: BudgetSnapshot(budget)
+    )
+  }
+
+  func moneyDraft(_ extra: ExtraMoney) -> ExtraMoneyDraft {
+    var draft = ExtraMoneyDraft(extra: extra)
+    draft.locale = Money.fixedLocale
+    return draft
+  }
+
+  /// What reached the store, read through a new context.
+  func savedExtrasInFreshContext() throws -> [(note: String, amountCents: Int, date: Date)] {
+    let saved = try ModelContext(container).fetch(FetchDescriptor<ExtraMoney>())
+    return saved.map { ($0.note, $0.amountCents, $0.date) }
+  }
+
+  @Test("Extra money before the start mixes with expenses, newest first, on the oldest page")
+  func extraMoneyInBeforeBudget() throws {
+    let truck = calendar.date(2026, 5, 30, 18)
+    let lamp = calendar.date(2026, 5, 26, 18)
+    try service.createExpense(amountCents: 1_000, note: "Truck", date: truck, now: truck)
+    try service.createExpense(amountCents: 2_000, note: "Lamp", date: lamp, now: lamp)
+    try addExtra(25_000, note: "Gift", on: calendar.date(2026, 5, 28, 9))
+    // On the first day, so in a period and not listed.
+    try addExtra(5_000, note: "Bonus", on: calendar.date(2026, 6, 1, 9))
+    try context.save()
+
+    let now = calendar.date(2026, 6, 10, 12)
+    #expect(try page(periodOffset: 0, now: now).beforeBudget.isEmpty)
+    let oldest = try page(periodOffset: 1, now: now)
+    #expect(oldest.beforeBudget.map(\.note) == ["Truck", "Gift", "Lamp"])
+    let gift = oldest.beforeBudget[1]
+    guard case .extraMoney(let extra) = gift else {
+      Issue.record("Expected extra money")
+      return
+    }
+    #expect(extra.amountCents == 25_000)
+    #expect(gift.id == extra.persistentModelID)
+    #expect(gift.date == calendar.date(2026, 5, 28))
+  }
+
+  @Test("Same-day extra money before the start keeps a fixed order")
+  func extraMoneySameDayOrder() throws {
+    let day = calendar.date(2026, 5, 28, 9)
+    try addExtra(300, note: "Cake", on: day)
+    try addExtra(200, note: "Apple", on: day)
+    try addExtra(100, note: "Apple", on: day)
+    let shown = try page(now: calendar.date(2026, 6, 3, 12)).beforeBudget
+    #expect(shown.map(\.note) == ["Apple", "Apple", "Cake"])
+    #expect(shown.map(\.amountCents) == [100, 200, 300])
+  }
+
+  @Test("Extra money before the start counts toward no period, carryover, or Today")
+  func extraMoneyBeforeStartExcluded() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    let baseline = try history(now: now)
+    let todayBaseline = try today(now: now)
+
+    // The last moment before the first day.
+    let extra = try addExtra(25_000, note: "Gift", on: calendar.date(2026, 5, 31))
+    extra.date = calendar.date(2026, 5, 31, 23, 59, 59)
+    try context.save()
+
+    #expect(try history(now: now) == baseline)
+    #expect(try today(now: now) == todayBaseline)
+    let oldest = try #require(baseline.last)
+    #expect(oldest.extraCents == 0)
+    #expect(oldest.carryOutCents == 70_000)
+    #expect(baseline.first?.carryInCents == 70_000)
+
+    // The preview of the first period, before the budget's first day, ignores it too.
+    let preview = AllowanceEngine(calendar: calendar).currentAllowance(
+      budget: BudgetSnapshot(budget),
+      expenses: [],
+      now: calendar.date(2026, 5, 20, 12)
+    )
+    #expect(preview.extraCents == 0)
+    #expect(preview.remainingPeriodCents == 70_000)
+
+    // The first day itself counts.
+    extra.date = calendar.date(2026, 6, 1)
+    try context.save()
+    let moved = try history(now: now)
+    #expect(moved.last?.extraCents == 25_000)
+    #expect(moved.last?.carryOutCents == 95_000)
+  }
+
+  @Test("Moving the start later moves extra money into Before budget and out of the figures")
+  func moveStartLaterMovesExtraMoney() throws {
+    // On the budget's first day no period has been used yet, so the move replaces the schedule.
+    let firstDay = calendar.date(2026, 6, 1, 12)
+    try addExtra(25_000, note: "Gift", on: firstDay)
+    let later = calendar.date(2026, 6, 11, 12)
+
+    let before = try page(periodOffset: 1, now: later)
+    #expect(before.beforeBudget.isEmpty)
+    #expect(before.selected.extraCents == 25_000)
+    #expect(before.selected.carryOutCents == 95_000)
+    #expect(try today(now: later).carryInCents == 95_000)
+
+    var budgetDraft = BudgetDraft(budget: budget, locale: Money.fixedLocale)
+    budgetDraft.periodStart = calendar.date(2026, 6, 3)
+    #expect(budgetDraft.apply(to: budget, now: firstDay, calendar: calendar))
+    try context.save()
+    #expect(budget.periodStart == calendar.date(2026, 6, 3))
+    #expect(budget.scheduleChanges.isEmpty)
+
+    let after = try page(periodOffset: 1, now: later)
+    #expect(after.beforeBudget.map(\.note) == ["Gift"])
+    #expect(after.periods.map(\.extraCents) == [0, 0])
+    #expect(after.selected.carryOutCents == 70_000)
+    let result = try today(now: later)
+    #expect(result.extraCents == 0)
+    #expect(result.carryInCents == 70_000)
+  }
+
+  @Test("Moving the start once the budget has begun leaves extra money in its period")
+  func moveStartAfterBudgetBeganKeepsExtraMoney() throws {
+    try addExtra(25_000, note: "Gift", on: calendar.date(2026, 6, 1, 12))
+    var budgetDraft = BudgetDraft(budget: budget, locale: Money.fixedLocale)
+    budgetDraft.periodStart = calendar.date(2026, 6, 5)
+    let now = calendar.date(2026, 6, 3, 12)
+    #expect(budgetDraft.apply(to: budget, now: now, calendar: calendar))
+    try context.save()
+    #expect(budget.scheduleChanges.count == 1)
+
+    let oldest = try page(periodOffset: 1, now: now)
+    #expect(oldest.beforeBudget.isEmpty)
+    #expect(oldest.selected.extraCents == 25_000)
+  }
+
+  @Test("Editing extra money before the start keeps its date unless another is chosen")
+  func editExtraMoneyBeforeStart() throws {
+    let originalDate = calendar.date(2026, 5, 28)
+    let extra = try addExtra(25_000, note: "Gift", on: originalDate)
+    let now = calendar.date(2026, 6, 10, 12)
+    let period = editablePeriod(of: extra)
+    #expect(period == .beforeBudget)
+
+    var draft = moneyDraft(extra)
+    #expect(draft.amountCents == 25_000)
+    #expect(draft.note == "Gift")
+    #expect(draft.date == originalDate)
+    draft.amountText = "300.50"
+    draft.note = "  Bigger gift "
+    #expect(draft.update(extra, period: period, now: now, calendar: calendar))
+    try context.save()
+    let saved = try #require(try savedExtrasInFreshContext().first)
+    #expect(saved.note == "Bigger gift")
+    #expect(saved.amountCents == 30_050)
+    #expect(saved.date == originalDate)
+    let edited = try page(periodOffset: 1, now: now)
+    #expect(edited.beforeBudget.map(\.note) == ["Bigger gift"])
+    #expect(edited.selected.extraCents == 0)
+
+    // Another day before the start stays out of every period, at local midnight.
+    var earlier = moneyDraft(extra)
+    earlier.date = calendar.date(2026, 5, 20, 15)
+    #expect(earlier.update(extra, period: period, now: now, calendar: calendar))
+    #expect(extra.date == calendar.date(2026, 5, 20))
+    #expect(editablePeriod(of: extra) == .beforeBudget)
+
+    // A day in the budget moves it into that period and out of the section.
+    var moved = moneyDraft(extra)
+    moved.date = calendar.date(2026, 6, 3, 15)
+    #expect(moved.update(extra, period: period, now: now, calendar: calendar))
+    try context.save()
+    #expect(extra.date == calendar.date(2026, 6, 3))
+    let shown = try page(periodOffset: 1, now: now)
+    #expect(shown.beforeBudget.isEmpty)
+    #expect(shown.selected.extraCents == 30_050)
+    #expect(shown.selected.carryOutCents == 100_050)
+
+    // Never after now.
+    var future = moneyDraft(extra)
+    future.date = calendar.date(2026, 6, 12)
+    let clamped = future.savedDate(in: period, now: now, calendar: calendar)
+    #expect(clamped == calendar.date(2026, 6, 10))
+  }
+
+  @Test("An unchanged date is saved as it was, whatever its time or how it compares to now")
+  func extraMoneyUnchangedDateIsExact() throws {
+    let extra = try addExtra(1_000, note: "Imported", on: calendar.date(2026, 5, 28))
+    let imported = calendar.date(2026, 5, 28, 15)
+    extra.date = imported
+    let draft = moneyDraft(extra)
+    let now = calendar.date(2026, 5, 20, 12)
+    #expect(draft.savedDate(in: .beforeBudget, now: now, calendar: calendar) == imported)
+  }
+
+  @Test("Invalid extra money amounts change nothing, and a negative amount stays negative")
+  func extraMoneyAmounts() throws {
+    let date = calendar.date(2026, 5, 28)
+    let extra = try addExtra(25_000, note: "Gift", on: date)
+    let now = calendar.date(2026, 6, 10, 12)
+    for text in ["", "0", "abc"] {
+      var draft = moneyDraft(extra)
+      draft.amountText = text
+      draft.note = "Changed"
+      draft.date = calendar.date(2026, 5, 20)
+      #expect(draft.amountCents == nil)
+      #expect(!draft.update(extra, period: .beforeBudget, now: now, calendar: calendar))
+      #expect(extra.amountCents == 25_000)
+      #expect(extra.note == "Gift")
+      #expect(extra.date == date)
+    }
+
+    extra.amountCents = -1_250
+    var negative = moneyDraft(extra)
+    #expect(negative.amountCents == -1_250)
+    negative.amountText = "20"
+    #expect(negative.update(extra, period: .beforeBudget, now: now, calendar: calendar))
+    #expect(extra.amountCents == -2_000)
+  }
+
+  @Test("Deleting extra money before the start removes it from the section and the store")
+  func deleteExtraMoneyBeforeStart() throws {
+    let gift = try addExtra(25_000, note: "Gift", on: calendar.date(2026, 5, 28))
+    try addExtra(1_000, note: "Refund", on: calendar.date(2026, 5, 27))
+    let now = calendar.date(2026, 6, 3, 12)
+    #expect(try page(now: now).beforeBudget.map(\.note) == ["Gift", "Refund"])
+
+    budget.removeExtraMoney(gift)
+    try context.save()
+
+    #expect(try page(now: now).beforeBudget.map(\.note) == ["Refund"])
+    #expect(try savedExtrasInFreshContext().map(\.note) == ["Refund"])
   }
 
   @Test("History screenshots seed two biweekly periods with carryover and some days over")
