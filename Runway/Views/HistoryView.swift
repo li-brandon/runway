@@ -27,7 +27,8 @@ struct HistoryView: View {
   @State private var periodOffset = 0
   @State private var editing: Expense?
   @State private var editNow = Date.now
-  @State private var deletion: ExpenseDeletion?
+  /// Only the latest delete can be undone; see `ExpenseUndoSlot`.
+  @State private var undoSlot = ExpenseUndoSlot()
   @State private var errorMessage: String?
 
   // Explicit because the private `@Query` makes the memberwise initializer private.
@@ -41,21 +42,45 @@ struct HistoryView: View {
 
   private var engine: HistoryEngine { HistoryEngine(calendar: calendar) }
 
-  private var periods: [HistoryPeriod<PersistentIdentifier?>] {
-    engine.periods(
+  private var page: HistoryPage {
+    Self.makePage(
+      budget: budget,
+      expenses: expenses,
+      periodOffset: periodOffset,
+      now: now,
+      calendar: calendar
+    )
+  }
+
+  /// Everything one render computes, from `expenses` sorted newest first like the query. Static
+  /// so tests can time it with the view's own inputs.
+  static func makePage(
+    budget: Budget,
+    expenses: [Expense],
+    periodOffset: Int,
+    now: Date,
+    calendar: Calendar
+  ) -> HistoryPage {
+    let engine = HistoryEngine(calendar: calendar)
+    let periods = engine.periods(
       budget: BudgetSnapshot(budget),
       expenses: expenses.map { HistoryExpense<PersistentIdentifier?>($0) },
       now: now
     )
+    let index = min(periodOffset, periods.count - 1)
+    let expensesByDay = engine.itemsByDay(expenses, in: periods[index].period) { $0.date }
+    return HistoryPage(periods: periods, index: index, expensesByDay: expensesByDay)
   }
 
   var body: some View {
-    let all = periods
-    let index = min(periodOffset, all.count - 1)
-    let selected = all[index]
+    let page = self.page
+    let all = page.periods
+    let index = page.index
+    let selected = page.selected
     // The carryover setting at the end of a completed period is the next period's at its start.
     let carriesOut = index > 0 && all[index - 1].carryoverEnabledAtStart
-    let expensesByDay = engine.itemsByDay(expenses, in: selected.period) { $0.date }
+    let expensesByDay = page.expensesByDay
+    // A List, so rows are created lazily as they scroll in, even with hundreds of expenses.
     return ScrollViewReader { proxy in
       List {
         Section {
@@ -79,18 +104,18 @@ struct HistoryView: View {
       }
     }
     .safeAreaInset(edge: .bottom) {
-      if let deletion {
-        undoBanner(deletion)
+      if undoSlot.pending != nil {
+        undoBanner()
       }
     }
     .navigationTitle("History")
     .navigationBarTitleDisplayMode(.inline)
-    .task(id: deletion?.expiresAt) {
-      guard let deadline = deletion?.expiresAt else { return }
+    .task(id: undoSlot.pending?.expiresAt) {
+      guard let deadline = undoSlot.pending?.expiresAt else { return }
       let delay = max(0, deadline.timeIntervalSinceNow)
       do {
         try await Task.sleep(for: .seconds(delay))
-        if deletion?.expiresAt == deadline { deletion = nil }
+        undoSlot.expire(at: deadline)
       } catch {}
     }
     .sheet(item: $editing) { expense in
@@ -287,7 +312,7 @@ struct HistoryView: View {
     }
   }
 
-  private func undoBanner(_ deletion: ExpenseDeletion) -> some View {
+  private func undoBanner() -> some View {
     let stacked = AnyLayout(VStackLayout(spacing: 8))
     let inline = AnyLayout(HStackLayout(spacing: 16))
     let layout = dynamicTypeSize.isAccessibilitySize ? stacked : inline
@@ -295,7 +320,7 @@ struct HistoryView: View {
       Text("Expense deleted")
         .font(.headline)
       Button("Undo") {
-        restore(deletion)
+        restore()
       }
       .frame(minWidth: 44, minHeight: 44)
       .accessibilityHint("Restores the expense you just deleted.")
@@ -343,17 +368,17 @@ struct HistoryView: View {
   private func delete(_ expense: Expense) {
     editing = nil
     do {
-      deletion = try ExpenseDeletion.delete(expense, in: modelContext, now: .now)
+      // Replaces any earlier deletion, which stays deleted without an undo.
+      try undoSlot.delete(expense, in: modelContext, now: .now)
     } catch {
       modelContext.rollback()
       errorMessage = error.localizedDescription
     }
   }
 
-  private func restore(_ deletion: ExpenseDeletion) {
+  private func restore() {
     do {
-      try deletion.undo(in: modelContext, now: .now)
-      self.deletion = nil
+      try undoSlot.undo(in: modelContext, now: .now)
     } catch {
       modelContext.rollback()
       errorMessage = error.localizedDescription
@@ -371,7 +396,7 @@ struct HistoryView: View {
   private func prepareScreenshot(proxy: ScrollViewProxy, days: [HistoryDay]) async {
     guard let screenshotScenario, screenshotScenario.isHistory else { return }
     let today = calendar.startOfDay(for: now)
-    if screenshotScenario == .historyPeriodSummary {
+    if screenshotScenario == .historyPeriodSummary || screenshotScenario == .history500 {
       periodOffset = 1
     }
     // Let the push from Today finish before presenting a sheet or scrolling.
@@ -389,8 +414,20 @@ struct HistoryView: View {
       proxy.scrollTo("categories", anchor: .top)
     } else if screenshotScenario == .historyList, let first = days.first {
       proxy.scrollTo(first.date, anchor: .top)
+    } else if screenshotScenario == .history500, let oldest = page.selected.days.last {
+      // The completed period's first day, below hundreds of expense rows.
+      proxy.scrollTo(oldest.date, anchor: .top)
     }
   }
+}
+
+/// One render of History: every period newest first, the selected one, and its expenses by day.
+struct HistoryPage {
+  let periods: [HistoryPeriod<PersistentIdentifier?>]
+  let index: Int
+  let expensesByDay: [Date: [Expense]]
+
+  var selected: HistoryPeriod<PersistentIdentifier?> { periods[index] }
 }
 
 /// Over or under with a symbol and words as well as color.

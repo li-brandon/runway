@@ -65,10 +65,12 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case historyPeriodSummary = "history-period-summary"
   /// History with the edit sheet open on yesterday's latest expense.
   case historyEdit = "history-edit"
+  /// The previous period with 500 expenses, scrolled to its oldest day, to check the list scrolls.
+  case history500 = "history-500"
 
   var isHistory: Bool {
     switch self {
-    case .historyList, .historyPeriodSummary, .historyEdit: true
+    case .historyList, .historyPeriodSummary, .historyEdit, .history500: true
     default: false
     }
   }
@@ -77,7 +79,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     switch self {
     case .todayNormal, .todayNear, .todayOver, .todayZero, .todayNoBudget:
       Self.fixedToday
-    case .historyList, .historyPeriodSummary, .historyEdit:
+    case .historyList, .historyPeriodSummary, .historyEdit, .history500:
       Self.fixedToday
     default:
       nil
@@ -137,7 +139,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     case .todayZero:
       budget = Budget(periodStart: periodStart, spendablePerPeriodCents: 0)
       bills = []
-    case .historyList, .historyPeriodSummary, .historyEdit:
+    case .historyList, .historyPeriodSummary, .historyEdit, .history500:
       return try seedHistory(into: context, now: now, calendar: calendar)
     case .setupWarning:
       // 1,200 - (1,100 + 250) - 100 = -250 available.
@@ -192,7 +194,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
 
   /// Two biweekly periods of everyday spending with $1,100 available and carryover on: a
   /// completed one starting 17 days before today, with some days over, and the current one
-  /// through this morning. Includes a refund.
+  /// through this morning. Includes a refund. `history-500` instead spreads 500 expenses over the
+  /// completed period, about 36 a day from 7:00 every 20 minutes, and none in the current one.
   private func seedHistory(
     into context: ModelContext,
     now: Date,
@@ -222,21 +225,31 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       ("Returned shirt", "Shopping", -2_500),
       ("Farmers market", "Groceries", 2_350),
     ]
-    for offset in 0...17 {
-      let day = calendar.date(byAdding: .day, value: offset, to: start) ?? start
-      // Two expenses a day, morning and evening; today has two morning ones before `now`.
-      let hours = offset == 17 ? [8, 10] : [9, 19]
-      for (slot, hour) in hours.enumerated() {
-        let sample = samples[(offset * 2 + slot) % samples.count]
-        let date = calendar.date(byAdding: .hour, value: hour, to: day) ?? day
-        try service.createExpense(
-          amountCents: sample.cents,
-          note: sample.note,
-          date: date,
-          category: categories.first { $0.name == sample.category },
-          now: date
-        )
+    var dates: [Date] = []
+    if self == .history500 {
+      for index in 0..<500 {
+        let day = calendar.date(byAdding: .day, value: index * 14 / 500, to: start) ?? start
+        let minutes = 420 + index % 36 * 20
+        dates.append(calendar.date(byAdding: .minute, value: minutes, to: day) ?? day)
       }
+    } else {
+      for offset in 0...17 {
+        let day = calendar.date(byAdding: .day, value: offset, to: start) ?? start
+        // Two expenses a day, morning and evening; today has two morning ones before `now`.
+        for hour in offset == 17 ? [8, 10] : [9, 19] {
+          dates.append(calendar.date(byAdding: .hour, value: hour, to: day) ?? day)
+        }
+      }
+    }
+    for (index, date) in dates.enumerated() {
+      let sample = samples[index % samples.count]
+      try service.createExpense(
+        amountCents: sample.cents,
+        note: sample.note,
+        date: date,
+        category: categories.first { $0.name == sample.category },
+        now: date
+      )
     }
     try context.save()
     return budget

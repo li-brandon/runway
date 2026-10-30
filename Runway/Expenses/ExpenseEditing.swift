@@ -94,3 +94,31 @@ struct ExpenseDeletion {
     return expense
   }
 }
+
+/// History's single undo. Only the most recent delete can be undone: a new delete replaces the
+/// pending one, which stays deleted (it was saved when deleted) and loses its undo.
+struct ExpenseUndoSlot {
+  private(set) var pending: ExpenseDeletion?
+
+  /// Deletes and saves `expense`, making it the only one Undo restores. On a save failure the
+  /// pending deletion is kept and the caller rolls back.
+  mutating func delete(_ expense: Expense, in context: ModelContext, now: Date) throws {
+    pending = try ExpenseDeletion.delete(expense, in: context, now: now)
+  }
+
+  /// Restores the latest deletion and empties the slot. Returns `nil`, and empties the slot, when
+  /// there is nothing to undo or it has expired. On a save failure the slot is kept.
+  @discardableResult
+  mutating func undo(in context: ModelContext, now: Date) throws -> Expense? {
+    guard let deletion = pending else { return nil }
+    let restored = try deletion.undo(in: context, now: now)
+    pending = nil
+    return restored
+  }
+
+  /// Empties the slot if its deletion still expires at `deadline`, so a later delete keeps its
+  /// own five seconds.
+  mutating func expire(at deadline: Date) {
+    if pending?.expiresAt == deadline { pending = nil }
+  }
+}
