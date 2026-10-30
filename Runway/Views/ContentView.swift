@@ -52,8 +52,7 @@ struct ContentView: View {
               .font(.footnote)
             Text(Money.format(cents: allowance.remainingTodayCents))
               .font(.system(size: min(amountSize, 96), weight: .bold, design: .rounded))
-              .lineLimit(1)
-              .minimumScaleFactor(0.1)
+              .minimumScaleFactor(TextScaling.minimumFactor)
               .frame(maxWidth: .infinity, alignment: .leading)
               .foregroundStyle(statusColor)
               .accessibilityLabel("Left to spend today")
@@ -252,7 +251,7 @@ struct ContentView: View {
         ForEach(SpendingView.allCases, id: \.self) { view in
           Text(view.rawValue)
             .lineLimit(1)
-            .minimumScaleFactor(0.7)
+            .minimumScaleFactor(TextScaling.minimumFactor)
             .tag(view)
         }
       }
@@ -272,7 +271,7 @@ struct ContentView: View {
       Text(Money.format(cents: summary.spentCents))
         .font(.largeTitle.bold())
         .lineLimit(2)
-        .minimumScaleFactor(0.7)
+        .minimumScaleFactor(TextScaling.minimumFactor)
       if spendingView != .day {
         Text("Budget for these days: \(Money.format(cents: summary.budgetCents))")
           .font(.footnote)

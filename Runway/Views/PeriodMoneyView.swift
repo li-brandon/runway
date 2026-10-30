@@ -119,8 +119,8 @@ struct PeriodMoneyView: View {
     }
     let amount = Text(Money.format(cents: extra.amountCents))
       .fontWeight(.semibold)
-      .lineLimit(1)
-      .minimumScaleFactor(0.5)
+      .minimumScaleFactor(TextScaling.minimumFactor)
+      .fixedSize(horizontal: false, vertical: true)
     return Group {
       if dynamicTypeSize.isAccessibilitySize {
         VStack(alignment: .leading, spacing: 4) {
@@ -161,8 +161,8 @@ struct PeriodMoneyView: View {
       }
       let amount = Text(Money.format(cents: bill.amountCents))
         .fontWeight(.semibold)
-        .lineLimit(1)
-        .minimumScaleFactor(0.5)
+        .minimumScaleFactor(TextScaling.minimumFactor)
+        .fixedSize(horizontal: false, vertical: true)
       Group {
         if dynamicTypeSize.isAccessibilitySize {
           VStack(alignment: .leading, spacing: 4) {
