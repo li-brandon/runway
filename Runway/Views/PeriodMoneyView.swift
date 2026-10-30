@@ -111,16 +111,29 @@ struct PeriodMoneyView: View {
 
   private func extraRow(_ extra: ExtraMoney) -> some View {
     let note = extra.note.isEmpty ? "Extra money" : extra.note
-    return HStack(alignment: .firstTextBaseline) {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(note)
-        Text(extra.date, format: .dateTime.month(.abbreviated).day())
-          .font(.caption)
-          .foregroundStyle(.secondary)
+    let title = VStack(alignment: .leading, spacing: 4) {
+      Text(note)
+      Text(extra.date, format: .dateTime.month(.abbreviated).day())
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    let amount = Text(Money.format(cents: extra.amountCents))
+      .fontWeight(.semibold)
+      .lineLimit(1)
+      .minimumScaleFactor(0.5)
+    return Group {
+      if dynamicTypeSize.isAccessibilitySize {
+        VStack(alignment: .leading, spacing: 4) {
+          title
+          amount
+        }
+      } else {
+        HStack(alignment: .firstTextBaseline) {
+          title
+          Spacer(minLength: 12)
+          amount
+        }
       }
-      Spacer(minLength: 12)
-      Text(Money.format(cents: extra.amountCents))
-        .fontWeight(.semibold)
     }
     .accessibilityElement(children: .combine)
   }
@@ -148,6 +161,8 @@ struct PeriodMoneyView: View {
       }
       let amount = Text(Money.format(cents: bill.amountCents))
         .fontWeight(.semibold)
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
       Group {
         if dynamicTypeSize.isAccessibilitySize {
           VStack(alignment: .leading, spacing: 4) {

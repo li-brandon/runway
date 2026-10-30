@@ -80,17 +80,34 @@ struct AppLaunchTests {
     #expect(missing.screenshotScenario == nil)
   }
 
-  @Test("Screenshot scrolling accepts spendable only with the in-memory store")
+  @Test("Screenshot scrolling accepts known targets only with the in-memory store")
   func screenshotScrollOptions() {
     let arguments = ["Runway", "-RunwayInMemoryStore", "-RunwayScreenshotScrollTo"]
     #expect(LaunchOptions(arguments: arguments + ["spendable"]).screenshotScrollTo == "spendable")
     let categories = LaunchOptions(arguments: arguments + ["categories"])
     #expect(categories.screenshotScrollTo == "categories")
+    let carryover = LaunchOptions(arguments: arguments + ["carryover"])
+    #expect(carryover.screenshotScrollTo == "carryover")
     #expect(LaunchOptions(arguments: arguments + ["unknown"]).screenshotScrollTo == nil)
     #expect(LaunchOptions(arguments: arguments).screenshotScrollTo == nil)
     #expect(LaunchOptions(arguments: ["Runway"]).screenshotScrollTo == nil)
     let onDisk = LaunchOptions(arguments: ["Runway", "-RunwayScreenshotScrollTo", "spendable"])
     #expect(onDisk.screenshotScrollTo == nil)
+  }
+
+  @Test("Carryover screenshots scroll to the setting unless a target is supplied")
+  func carryoverScreenshotScroll() {
+    let arguments = [
+      "Runway",
+      "-RunwayInMemoryStore",
+      "-RunwayScreenshotScenario",
+      "budget-change-carryover",
+    ]
+    #expect(LaunchOptions(arguments: arguments).screenshotScrollTo == "carryover")
+    let override = arguments + ["-RunwayScreenshotScrollTo", "spendable"]
+    #expect(LaunchOptions(arguments: override).screenshotScrollTo == "spendable")
+    let onDisk = arguments.filter { $0 != "-RunwayInMemoryStore" }
+    #expect(LaunchOptions(arguments: onDisk).screenshotScrollTo == nil)
   }
 
   @Test("Scenario names match the CI workflow")

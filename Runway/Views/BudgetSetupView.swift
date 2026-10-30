@@ -150,6 +150,7 @@ struct BudgetSetupView: View {
         } footer: {
           Text("Leftovers or overspending roll into the next period. Changes apply next period.")
         }
+        .id("carryover")
       }
       .task {
         let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)

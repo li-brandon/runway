@@ -9,12 +9,13 @@ import SwiftData
 ///   be written to the real store.
 /// - `-RunwayScreenshotScrollTo spendable` scrolls setup to its amount fields, and
 ///   `-RunwayScreenshotScrollTo categories` scrolls History to its category totals. Both are
-///   ignored without `-RunwayInMemoryStore`.
+///   ignored without `-RunwayInMemoryStore`. The `carryover` target scrolls to the carryover
+///   setting and is the default for `budget-change-carryover`.
 struct LaunchOptions: Equatable, Sendable {
   static let inMemoryStoreArgument = "-RunwayInMemoryStore"
   static let screenshotScenarioArgument = "-RunwayScreenshotScenario"
   static let screenshotScrollToArgument = "-RunwayScreenshotScrollTo"
-  static let screenshotScrollTargets: Set<String> = ["spendable", "categories"]
+  static let screenshotScrollTargets: Set<String> = ["spendable", "categories", "carryover"]
 
   var usesInMemoryStore = false
   var screenshotScenario: ScreenshotScenario?
@@ -27,6 +28,9 @@ struct LaunchOptions: Equatable, Sendable {
       index + 1 < arguments.count
     {
       screenshotScenario = ScreenshotScenario(rawValue: arguments[index + 1])
+    }
+    if screenshotScenario == .budgetChangeCarryover {
+      screenshotScrollTo = "carryover"
     }
     if let index = arguments.firstIndex(of: Self.screenshotScrollToArgument),
       index + 1 < arguments.count,
