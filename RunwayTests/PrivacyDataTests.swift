@@ -236,6 +236,46 @@ struct PrivacyDataTests {
     }
   }
 
+  @Test("Import refuses a context with unsaved changes and leaves the store unchanged")
+  func importRejectsUnsavedChanges() throws {
+    let context = try makeContext()
+    try seedEverything(into: context)
+    let now = calendar.date(2026, 6, 10)
+    let before = try DataExport.snapshot(of: context, now: now)
+    let countsBefore = try counts(in: context)
+    let validated = try DataImport.validate(try validSnapshot())
+
+    context.insert(Budget(periodStart: .now, spendablePerPeriodCents: 1))
+    #expect(context.hasChanges)
+
+    var saveAttempts = 0
+    #expect(throws: DataImportError.unsavedChanges) {
+      try DataImport.apply(validated, to: context) { _ in saveAttempts += 1 }
+    }
+    #expect(saveAttempts == 0)
+    // The refusal doesn't discard the caller's work.
+    #expect(context.hasChanges)
+
+    let loaded = ModelContext(context.container)
+    #expect(try counts(in: loaded) == countsBefore)
+    #expect(try DataExport.snapshot(of: loaded, now: now) == before)
+  }
+
+  @Test("Import goes ahead once the context's changes are saved")
+  func importAcceptsCleanContext() throws {
+    let context = try makeContext()
+    try seedEverything(into: context)
+    context.insert(Budget(periodStart: .now, spendablePerPeriodCents: 1))
+    try context.save()
+    #expect(!context.hasChanges)
+
+    let snapshot = try validSnapshot()
+    try DataImport.apply(try DataImport.validate(snapshot), to: context)
+
+    let loaded = ModelContext(context.container)
+    #expect(try DataExport.snapshot(of: loaded, now: snapshot.exportedAt) == snapshot)
+  }
+
   @Test("Cancelling the import confirmation drops the backup without applying it")
   func cancelImportConfirmation() throws {
     let context = try makeContext()
@@ -592,12 +632,95 @@ struct PrivacyDataTests {
     try seedEverything(into: context)
     try DataReset.reset(in: context)
 
+    // The live context sees the result too, which is what the rebuilt views read.
+    #expect(!context.hasChanges)
+    #expect(try counts(in: context) == [0, 0, 0, 7, 0, 0, 0, 0, 0])
     let loaded = ModelContext(context.container)
     #expect(try counts(in: loaded) == [0, 0, 0, 7, 0, 0, 0, 0, 0])
     let service = CategoryService(context: loaded)
-    #expect(try service.categories().map(\.name) == CategoryService.defaultNames)
+    let categories = try service.categories()
+    #expect(categories.map(\.name) == CategoryService.defaultNames)
+    // New defaults, not the old rows: the store's Food had a customized color.
+    #expect(categories.map(\.colorHex) == CategoryService.colors)
     try service.createExpense(amountCents: 100)
     try loaded.save()
     #expect(try loaded.fetch(FetchDescriptor<Expense>()).first?.category?.isSystem == true)
+  }
+
+  @Test("Reset deletes and seeds in one save")
+  func resetSavesOnce() throws {
+    let context = try makeContext()
+    try seedEverything(into: context)
+
+    var saveAttempts = 0
+    try DataReset.reset(in: context) { scratch in
+      saveAttempts += 1
+      #expect(!scratch.deletedModelsArray.isEmpty)
+      #expect(scratch.insertedModelsArray.count == CategoryService.defaultNames.count)
+      try scratch.save()
+    }
+
+    #expect(saveAttempts == 1)
+    #expect(try counts(in: context) == [0, 0, 0, 7, 0, 0, 0, 0, 0])
+  }
+
+  @Test("A failed reset save throws and leaves existing data unchanged")
+  func failedResetSave() throws {
+    struct SaveFailure: Error {}
+
+    let context = try makeContext()
+    try seedEverything(into: context)
+    let now = calendar.date(2026, 6, 10)
+    let before = try DataExport.snapshot(of: context, now: now)
+    let countsBefore = try counts(in: context)
+
+    var saveAttempts = 0
+    #expect(throws: SaveFailure.self) {
+      try DataReset.reset(in: context) { scratch in
+        saveAttempts += 1
+        // Proves the failure comes after the reset was staged, with something to discard.
+        #expect(scratch.hasChanges)
+        throw SaveFailure()
+      }
+    }
+    #expect(saveAttempts == 1)
+    #expect(!context.hasChanges)
+
+    // Both the live context and a fresh read of the store see the original data.
+    for loaded in [context, ModelContext(context.container)] {
+      #expect(try counts(in: loaded) == countsBefore)
+      #expect(try DataExport.snapshot(of: loaded, now: now) == before)
+
+      let budget = try #require(try loaded.fetch(FetchDescriptor<Budget>()).first)
+      #expect(budget.spendablePerPeriodCents == 240_000)
+      #expect(budget.fixedBills.map(\.name).sorted() == ["Phone", "Rent"])
+      let expenses = try loaded.fetch(FetchDescriptor<Expense>(sortBy: [SortDescriptor(\.date)]))
+      #expect(expenses.map(\.amountCents) == [1_250, -500])
+      #expect(expenses[0].category?.name == "Food")
+    }
+  }
+
+  @Test("Reset refuses a context with unsaved changes and leaves the store unchanged")
+  func resetRejectsUnsavedChanges() throws {
+    let context = try makeContext()
+    try seedEverything(into: context)
+    let now = calendar.date(2026, 6, 10)
+    let before = try DataExport.snapshot(of: context, now: now)
+    let countsBefore = try counts(in: context)
+
+    context.insert(Budget(periodStart: .now, spendablePerPeriodCents: 1))
+    #expect(context.hasChanges)
+
+    var saveAttempts = 0
+    #expect(throws: DataResetError.unsavedChanges) {
+      try DataReset.reset(in: context) { _ in saveAttempts += 1 }
+    }
+    #expect(saveAttempts == 0)
+    // The refusal doesn't discard the caller's work.
+    #expect(context.hasChanges)
+
+    let loaded = ModelContext(context.container)
+    #expect(try counts(in: loaded) == countsBefore)
+    #expect(try DataExport.snapshot(of: loaded, now: now) == before)
   }
 }

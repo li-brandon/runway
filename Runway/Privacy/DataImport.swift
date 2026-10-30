@@ -11,6 +11,7 @@ enum DataImportError: LocalizedError, Equatable {
   case dateOutOfRange(String)
   case duplicateID(String)
   case danglingReference(String)
+  case unsavedChanges
 
   var errorDescription: String? {
     switch self {
@@ -32,6 +33,8 @@ enum DataImportError: LocalizedError, Equatable {
       "This backup lists the same ID twice in \(section)."
     case .danglingReference(let field):
       "This backup has a \(field) that points to a record that doesn't exist."
+    case .unsavedChanges:
+      "Runway is still saving your latest changes. Try importing again in a moment."
     }
   }
 }
@@ -166,13 +169,14 @@ enum DataImport {
   /// Replaces everything in `context`'s store in a single save. The work is staged in a separate
   /// scratch context on the same container, so a failure just discards that context and neither
   /// the store nor `context` changes. Rolling back staged deletes and inserts in place traps in
-  /// SwiftData, so there is deliberately no rollback here. `save` replaces the scratch context's
-  /// save so tests can fail it.
+  /// SwiftData, so there is deliberately no rollback here. Unsaved changes in `context` throw
+  /// before anything is staged. `save` replaces the scratch context's save so tests can fail it.
   static func apply(
     _ validated: ValidatedImport,
     to context: ModelContext,
     save: ((ModelContext) throws -> Void)? = nil
   ) throws {
+    guard !context.hasChanges else { throw DataImportError.unsavedChanges }
     let scratch = ModelContext(context.container)
     scratch.autosaveEnabled = false
     try DataReset.deleteAll(in: scratch)

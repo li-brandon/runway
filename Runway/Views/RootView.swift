@@ -4,8 +4,6 @@ import SwiftUI
 
 /// Keeps Today behind the initial setup sheet, then shows the saved budget.
 struct RootView: View {
-  @Query(sort: \Budget.periodStart) private var budgets: [Budget]
-
   /// Opens the requested sample screen on launch. Used for CI screenshots.
   let screenshotScenario: ScreenshotScenario?
 
@@ -16,8 +14,31 @@ struct RootView: View {
   /// An older copy of the action still works, since it writes to the same `@State` storage.
   @State private var dataReplaceActionID = UUID()
 
-  // Explicit because the private `@Query` makes the memberwise initializer private.
+  // Explicit because the private `@State` properties make the memberwise initializer private.
   init(screenshotScenario: ScreenshotScenario? = nil) {
+    self.screenshotScenario = screenshotScenario
+  }
+
+  var body: some View {
+    RootContent(screenshotScenario: screenshotScenario)
+      .id(dataGeneration)
+      .environment(
+        \.dataDidReplace,
+        DataReplaceAction(id: dataReplaceActionID) { dataGeneration += 1 }
+      )
+  }
+}
+
+/// Holds the budget query below `RootView`'s `id`. Imports and resets save in another context, so
+/// rebuilding the query is what fetches the new store at once, rather than showing a deleted budget
+/// until the save reaches the old query.
+private struct RootContent: View {
+  @Query(sort: \Budget.periodStart) private var budgets: [Budget]
+
+  let screenshotScenario: ScreenshotScenario?
+
+  // Explicit because the private `@Query` makes the memberwise initializer private.
+  init(screenshotScenario: ScreenshotScenario?) {
     self.screenshotScenario = screenshotScenario
   }
 
@@ -43,11 +64,6 @@ struct RootView: View {
         TodayEmptyView(opensSetup: screenshotScenario != .todayNoBudget)
       }
     }
-    .id(dataGeneration)
-    .environment(
-      \.dataDidReplace,
-      DataReplaceAction(id: dataReplaceActionID) { dataGeneration += 1 }
-    )
   }
 }
 
