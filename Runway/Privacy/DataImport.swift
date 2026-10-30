@@ -163,20 +163,24 @@ enum DataImport {
     return ValidatedImport(snapshot: snapshot)
   }
 
-  /// Replaces everything in `context` in a single save. If anything fails, the context rolls back
-  /// and the store keeps its existing data. `save` replaces `context.save` so tests can fail it.
+  /// Replaces everything in `context`'s store in a single save. The work is staged in a separate
+  /// scratch context on the same container, so a failure just discards that context and neither
+  /// the store nor `context` changes. Rolling back staged deletes and inserts in place traps in
+  /// SwiftData, so there is deliberately no rollback here. `save` replaces the scratch context's
+  /// save so tests can fail it.
   static func apply(
     _ validated: ValidatedImport,
     to context: ModelContext,
-    save: (() throws -> Void)? = nil
+    save: ((ModelContext) throws -> Void)? = nil
   ) throws {
-    do {
-      try DataReset.deleteAll(in: context)
-      try insert(validated.snapshot, into: context)
-      try (save ?? context.save)()
-    } catch {
-      context.rollback()
-      throw error
+    let scratch = ModelContext(context.container)
+    scratch.autosaveEnabled = false
+    try DataReset.deleteAll(in: scratch)
+    try insert(validated.snapshot, into: scratch)
+    if let save {
+      try save(scratch)
+    } else {
+      try scratch.save()
     }
   }
 

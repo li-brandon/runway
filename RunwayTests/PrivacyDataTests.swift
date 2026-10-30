@@ -212,10 +212,10 @@ struct PrivacyDataTests {
 
     var saveAttempts = 0
     #expect(throws: SaveFailure.self) {
-      try DataImport.apply(validated, to: context) {
+      try DataImport.apply(validated, to: context) { scratch in
         saveAttempts += 1
-        // Proves the failure comes after the replacement was staged, with something to undo.
-        #expect(context.hasChanges)
+        // Proves the failure comes after the replacement was staged, with something to discard.
+        #expect(scratch.hasChanges)
         throw SaveFailure()
       }
     }
