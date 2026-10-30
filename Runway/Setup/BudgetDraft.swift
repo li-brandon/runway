@@ -7,7 +7,8 @@ import SwiftData
 ///
 /// Decisions:
 /// - **Amounts** are typed as text and parsed through `Decimal` into integer cents. `$`, spaces,
-///   and the locale's grouping separator are ignored; the locale's decimal separator is accepted.
+///   and valid grouping separators are accepted. `$` amounts infer decimals from the last
+///   separator; other input uses the locale's separators.
 ///   More than two decimal places is rejected rather than rounded. Amounts above
 ///   `maximumCents` are rejected so sums of cents can't overflow.
 /// - **Required:** spendable, and each bill's name and amount. Income and savings are optional
@@ -85,7 +86,7 @@ struct BudgetDraft: Equatable, Sendable {
   var savingsText = ""
   var bills: [Bill] = []
   var carryoverEnabled = true
-  /// Decimal and grouping separators for parsing and formatting the amount text.
+  /// Decimal and grouping separators for parsing amounts without a dollar sign.
   var locale: Locale
 
   /// A new budget's defaults: biweekly, carryover on, everything else empty.
@@ -98,11 +99,11 @@ struct BudgetDraft: Equatable, Sendable {
   init(budget: Budget, locale: Locale = .autoupdatingCurrent) {
     self.init(periodStart: budget.periodStart, locale: locale)
     periodLength = budget.periodLength
-    spendableText = Self.text(fromCents: budget.spendablePerPeriodCents, locale: locale)
+    spendableText = Self.text(fromCents: budget.spendablePerPeriodCents)
     if let incomeCents = budget.incomeCents {
-      incomeText = Self.text(fromCents: incomeCents, locale: locale)
+      incomeText = Self.text(fromCents: incomeCents)
     }
-    savingsText = Self.text(fromCents: budget.savingsCents, locale: locale)
+    savingsText = Self.text(fromCents: budget.savingsCents)
     let sortedBills = budget.fixedBills.sorted { lhs, rhs in
       (lhs.dueDay ?? 32, lhs.name) < (rhs.dueDay ?? 32, rhs.name)
     }
@@ -110,7 +111,7 @@ struct BudgetDraft: Equatable, Sendable {
       Bill(
         modelID: bill.persistentModelID,
         name: bill.name,
-        amountText: Self.text(fromCents: bill.amountCents, locale: locale),
+        amountText: Self.text(fromCents: bill.amountCents),
         dueDay: bill.dueDay
       )
     }
@@ -172,7 +173,7 @@ struct BudgetDraft: Equatable, Sendable {
   /// Copies the entered income into spendable.
   mutating func useIncomeForSpendable() {
     guard let incomeCents else { return }
-    spendableText = Self.text(fromCents: incomeCents, locale: locale)
+    spendableText = Self.text(fromCents: incomeCents)
   }
 
   mutating func addBill() {
@@ -281,13 +282,19 @@ struct BudgetDraft: Equatable, Sendable {
 
   /// Parses typed dollars into cents, e.g. `"$1,234.5"` → `123_450` in `en_US`.
   static func parseAmount(_ text: String, locale: Locale = .autoupdatingCurrent) -> ParsedAmount {
-    let decimalSeparator = locale.decimalSeparator ?? "."
-    let groupingSeparator = locale.groupingSeparator ?? ","
-    var normalized = text.filter { !$0.isWhitespace && $0 != "$" }
-    if !groupingSeparator.isEmpty && groupingSeparator != decimalSeparator {
-      normalized = normalized.replacingOccurrences(of: groupingSeparator, with: "")
+    var normalized: String
+    if text.contains("$") {
+      guard let dollars = normalizedDollarText(text) else { return .failure(.invalid) }
+      normalized = dollars
+    } else {
+      let decimalSeparator = locale.decimalSeparator ?? "."
+      let groupingSeparator = locale.groupingSeparator ?? ","
+      normalized = text.filter { !$0.isWhitespace }
+      if !groupingSeparator.isEmpty && groupingSeparator != decimalSeparator {
+        normalized = normalized.replacingOccurrences(of: groupingSeparator, with: "")
+      }
+      normalized = normalized.replacingOccurrences(of: decimalSeparator, with: ".")
     }
-    normalized = normalized.replacingOccurrences(of: decimalSeparator, with: ".")
     guard !normalized.isEmpty else { return .empty }
 
     let isNegative = normalized.hasPrefix("-")
@@ -321,11 +328,46 @@ struct BudgetDraft: Equatable, Sendable {
     return .cents(cents)
   }
 
+  /// Dollar-prefixed input accepts either decimal separator and validates grouping first.
+  private static func normalizedDollarText(_ text: String) -> String? {
+    guard text.filter({ $0 == "$" }).count == 1 else { return nil }
+    var amount = text.filter { !$0.isWhitespace && $0 != "$" }
+    let isNegative = amount.hasPrefix("-")
+    if isNegative {
+      amount.removeFirst()
+    }
+    let digits: ClosedRange<Character> = "0"..."9"
+    var whole = amount[...]
+    var fraction = ""
+    if let separator = amount.lastIndex(where: { $0 == "," || $0 == "." }) {
+      let suffix = amount[amount.index(after: separator)...]
+      if (1...2).contains(suffix.count) && suffix.allSatisfy({ digits.contains($0) }) {
+        whole = amount[..<separator]
+        fraction = String(suffix)
+      }
+    }
+    let groups = whole.split(omittingEmptySubsequences: false) { $0 == "," || $0 == "." }
+    guard let first = groups.first,
+      !first.isEmpty,
+      first.allSatisfy({ digits.contains($0) }),
+      groups.count == 1 || first.count <= 3,
+      groups.dropFirst().allSatisfy({ group in
+        group.count == 3 && group.allSatisfy({ digits.contains($0) })
+      })
+    else { return nil }
+    let sign = isNegative ? "-" : ""
+    let integer = groups.joined()
+    if fraction.isEmpty {
+      return sign + integer
+    }
+    return sign + integer + "." + fraction
+  }
+
   /// Formats editable USD with grouping and cents only when nonzero.
-  /// Uses the parsing locale's separators and an explicit dollar sign for round trips.
-  static func text(fromCents cents: Int, locale: Locale = .autoupdatingCurrent) -> String {
+  /// Uses Latin digits and US separators with an explicit dollar sign for round trips.
+  static func text(fromCents cents: Int) -> String {
     let formatter = NumberFormatter()
-    formatter.locale = locale
+    formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.numberStyle = .decimal
     formatter.usesGroupingSeparator = true
     formatter.minimumFractionDigits = cents % 100 == 0 ? 0 : 2
@@ -338,7 +380,7 @@ struct BudgetDraft: Equatable, Sendable {
   /// Reformats valid input as editable USD. Empty or invalid text is returned unchanged.
   static func displayText(for text: String, locale: Locale = .autoupdatingCurrent) -> String {
     guard case .cents(let cents) = parseAmount(text, locale: locale) else { return text }
-    return Self.text(fromCents: cents, locale: locale)
+    return Self.text(fromCents: cents)
   }
 
   private func parse(_ text: String) -> ParsedAmount {

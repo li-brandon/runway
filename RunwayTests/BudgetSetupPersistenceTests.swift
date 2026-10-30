@@ -97,10 +97,13 @@ struct BudgetSetupPersistenceTests {
     try context.save()
 
     let loaded = BudgetDraft(budget: budget, locale: locale)
-    let formatted = BudgetDraft.text(fromCents: cents, locale: locale)
+    let formatted = BudgetDraft.text(fromCents: cents)
     #expect(loaded.spendableText == formatted)
     #expect(loaded.incomeText == formatted)
     #expect(loaded.savingsText == formatted)
+    if cents == 0 {
+      #expect(loaded.savingsText == "$0")
+    }
     #expect(loaded.bills.first?.amountText == formatted)
     #expect(loaded.apply(to: budget, now: calendar.date(2026, 6, 5), calendar: calendar))
     try context.save()
