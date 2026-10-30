@@ -15,7 +15,7 @@ extension BudgetSnapshot {
       ExtraMoneySnapshot(amountCents: extra.amountCents, date: extra.date)
     }
     let bills = budget.billPayments.compactMap { payment -> ExtraMoneySnapshot? in
-      let cents = payment.plannedCents - payment.paidCents
+      let cents = payment.adjustmentCents
       guard cents != 0 else { return nil }
       return ExtraMoneySnapshot(amountCents: cents, date: payment.date)
     }
@@ -217,37 +217,56 @@ extension Budget {
 
   /// `bill`'s paid or skipped mark in `period`, if any.
   func payment(for bill: FixedBill, in period: BudgetPeriod) -> BillPayment? {
-    billPayments.first { $0.bill === bill && period.contains($0.date) }
+    billPayments.filter { $0.bill === bill && period.contains($0.date) }
+      .max { $0.sequence < $1.sequence }
   }
 
   func status(of bill: FixedBill, in period: BudgetPeriod) -> BillStatus {
-    guard let mark = payment(for: bill, in: period) else { return .unpaid }
+    guard let mark = payment(for: bill, in: period), !mark.isCleared else { return .unpaid }
     return mark.isSkipped ? .skipped : .paid(cents: mark.paidCents)
   }
 
-  /// Marks `bill` paid or skipped in the period containing `now`, or clears its mark. From now
-  /// on the period gets back what the bill doesn't use: all of it when skipped, the difference
-  /// when paid at another amount. A new mark replaces the bill's earlier one in the period.
+  /// Appends a dated adjustment so replacing or clearing a mark preserves earlier days.
   func setStatus(_ status: BillStatus, of bill: FixedBill, now: Date, calendar: Calendar) {
     let engine = AllowanceEngine(calendar: calendar)
     let period = engine.period(containing: now, of: BudgetSnapshot(self))
-    if let existing = payment(for: bill, in: period) {
-      billPayments.removeAll { $0 === existing }
-      modelContext?.delete(existing)
-    }
+    guard self.status(of: bill, in: period) != status else { return }
+    let previous = payment(for: bill, in: period)
+    let previousCredit = previous.map { $0.isCleared ? 0 : $0.plannedCents - $0.paidCents } ?? 0
     let paidCents: Int
     switch status {
-    case .unpaid:
-      return
+    case .unpaid, .skipped:
+      paidCents = 0
     case .paid(let cents):
       paidCents = cents
-    case .skipped:
-      paidCents = 0
     }
-    let mark = BillPayment(
-      isSkipped: status == .skipped,
+    let credit = status == .unpaid ? 0 : bill.amountCents - paidCents
+    appendMark(
+      of: bill,
+      status: status,
       plannedCents: bill.amountCents,
       paidCents: paidCents,
+      adjustmentCents: credit - previousCredit,
+      now: now
+    )
+  }
+
+  private func appendMark(
+    of bill: FixedBill,
+    status: BillStatus,
+    plannedCents: Int,
+    paidCents: Int,
+    adjustmentCents: Int,
+    now: Date
+  ) {
+    let sequence = (billPayments.map(\.sequence).max() ?? 0) + 1
+    let mark = BillPayment(
+      isSkipped: status == .skipped,
+      isCleared: status == .unpaid,
+      plannedCents: plannedCents,
+      paidCents: paidCents,
+      adjustmentCents: adjustmentCents,
+      sequence: sequence,
       date: now
     )
     modelContext?.insert(mark)
@@ -255,12 +274,19 @@ extension Budget {
     mark.bill = bill
   }
 
-  /// Keeps `bill`'s mark in `period` right after its amount drops by `releasedCents` (all of it
-  /// when the bill is removed). The amount change already gives the period `releasedCents` from
-  /// today, and a paid or skipped bill had settled its share, so the mark gives that much less.
-  func rebaseMark(of bill: FixedBill, releasedCents: Int, in period: BudgetPeriod) {
-    guard releasedCents != 0, let mark = payment(for: bill, in: period) else { return }
-    mark.plannedCents -= releasedCents
+  /// Offsets the amount edit for an already settled bill, from the edit day forward.
+  func rebaseMark(of bill: FixedBill, releasedCents: Int, in period: BudgetPeriod, now: Date) {
+    guard releasedCents != 0,
+      let mark = payment(for: bill, in: period), !mark.isCleared
+    else { return }
+    appendMark(
+      of: bill,
+      status: status(of: bill, in: period),
+      plannedCents: mark.plannedCents - releasedCents,
+      paidCents: mark.paidCents,
+      adjustmentCents: -releasedCents,
+      now: now
+    )
   }
 
   // MARK: - Time zones

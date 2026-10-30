@@ -157,7 +157,9 @@ struct ContentView: View {
       }
       .onReceive(
         NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
+          .receive(on: RunLoop.main)
       ) { _ in
+        adoptCurrentTimeZone()
         now = .now
       }
       .onReceive(

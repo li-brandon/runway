@@ -201,7 +201,7 @@ struct BudgetDraft: Equatable, Sendable {
       timeZoneIdentifier: calendar.timeZone.identifier
     )
     context.insert(budget)
-    apply(values.bills, to: budget, currentPeriod: nil)
+    apply(values.bills, to: budget, currentPeriod: nil, now: nil)
     return budget
   }
 
@@ -228,7 +228,7 @@ struct BudgetDraft: Equatable, Sendable {
     budget.setCarryover(carryoverEnabled, now: now, calendar: calendar)
     let engine = AllowanceEngine(calendar: calendar)
     let current = engine.period(containing: now, of: BudgetSnapshot(budget))
-    apply(values.bills, to: budget, currentPeriod: current)
+    apply(values.bills, to: budget, currentPeriod: current, now: now)
     budget.recordAmountChange(from: previousAvailableCents, now: now, calendar: calendar)
     return true
   }
@@ -316,12 +316,15 @@ struct BudgetDraft: Equatable, Sendable {
   private func apply(
     _ parsedBills: [ParsedBill],
     to budget: Budget,
-    currentPeriod: BudgetPeriod?
+    currentPeriod: BudgetPeriod?,
+    now: Date?
   ) {
     let keptIDs = Set(parsedBills.compactMap { $0.bill.modelID })
     for bill in budget.fixedBills where !keptIDs.contains(bill.persistentModelID) {
-      if let currentPeriod {
-        budget.rebaseMark(of: bill, releasedCents: bill.amountCents, in: currentPeriod)
+      if let currentPeriod, let now {
+        budget.rebaseMark(
+          of: bill, releasedCents: bill.amountCents, in: currentPeriod, now: now
+        )
       }
       budget.fixedBills.removeAll { $0 === bill }
       budget.modelContext?.delete(bill)
@@ -331,9 +334,11 @@ struct BudgetDraft: Equatable, Sendable {
       if let modelID = parsed.bill.modelID,
         let existing = budget.fixedBills.first(where: { $0.persistentModelID == modelID })
       {
-        if let currentPeriod {
+        if let currentPeriod, let now {
           let releasedCents = existing.amountCents - parsed.amountCents
-          budget.rebaseMark(of: existing, releasedCents: releasedCents, in: currentPeriod)
+          budget.rebaseMark(
+            of: existing, releasedCents: releasedCents, in: currentPeriod, now: now
+          )
         }
         existing.name = name
         existing.amountCents = parsed.amountCents

@@ -230,7 +230,7 @@ struct MidPeriodAmountTests {
     budget.setStatus(.skipped, of: rent, now: today, calendar: calendar)
     try context.save()
     #expect(budget.status(of: rent, in: period) == .skipped)
-    #expect(try context.fetchCount(FetchDescriptor<BillPayment>()) == 1)
+    #expect(try context.fetchCount(FetchDescriptor<BillPayment>()) == 3)
     #expect(current().remainingPeriodCents == 100_000)
     // 1,000 / 5 from today. Monday and Tuesday keep 700 / 7.
     #expect(current().allowanceTodayCents == 20_000)
@@ -248,7 +248,7 @@ struct MidPeriodAmountTests {
 
     budget.setStatus(.unpaid, of: rent, now: today, calendar: calendar)
     try context.save()
-    #expect(try context.fetchCount(FetchDescriptor<BillPayment>()) == 0)
+    #expect(try context.fetchCount(FetchDescriptor<BillPayment>()) == 4)
     #expect(current().remainingPeriodCents == 70_000)
   }
 
@@ -280,6 +280,9 @@ struct MidPeriodAmountTests {
       #expect(draft.apply(to: budget, now: thursday, calendar: calendar))
       try context.save()
 
+      let wednesday = allowance(budget, now: today, expenses: [])
+      let markedCents = status == .skipped ? 100_000 : 75_000
+      #expect(wednesday.remainingPeriodCents == markedCents)
       let result = allowance(budget, now: thursday, expenses: [])
       #expect(result.remainingPeriodCents == expectedCents, "\(status) \(newAmountCents ?? 0)")
       // Next period, only the bill as it is now is set aside.
@@ -287,5 +290,33 @@ struct MidPeriodAmountTests {
       #expect(next.carryInCents == expectedCents)
       #expect(next.remainingPeriodCents == expectedCents + 100_000 - (newAmountCents ?? 0))
     }
+  }
+
+  @Test("Bill status changes on later days preserve earlier allowances after reloading")
+  func billMarkHistory() throws {
+    let context = ModelContext(container)
+    let budget = try makeBudget(in: context, withRent: true)
+    let rent = try #require(budget.fixedBills.first)
+    budget.setStatus(.skipped, of: rent, now: today, calendar: calendar)
+    let thursday = calendar.date(2026, 6, 4, 12)
+    budget.setStatus(.paid(cents: 25_000), of: rent, now: thursday, calendar: calendar)
+    let friday = calendar.date(2026, 6, 5, 12)
+    budget.setStatus(.unpaid, of: rent, now: friday, calendar: calendar)
+    try context.save()
+
+    let loaded = ModelContext(container)
+    let saved = try #require(try loaded.fetch(FetchDescriptor<Budget>()).first)
+    let bill = try #require(saved.fixedBills.first)
+    let period = engine.period(containing: friday, of: BudgetSnapshot(saved))
+    #expect(saved.status(of: bill, in: period) == .unpaid)
+    #expect(saved.billPayments.count == 3)
+    #expect(saved.billPayments.reduce(0) { $0 + $1.adjustmentCents } == 0)
+    let history = HistoryEngine(calendar: calendar).periods(
+      budget: BudgetSnapshot(saved), expenses: [HistoryExpense<String>](), now: friday
+    )[0]
+    #expect(history.days.reversed().map(\.allowanceCents) == [
+      10_000, 11_666, 20_000, 18_750, 23_333,
+    ])
+    #expect(history.remainingCents == 70_000)
   }
 }

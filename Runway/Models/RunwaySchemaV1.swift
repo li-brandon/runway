@@ -1,12 +1,11 @@
 import Foundation
 import SwiftData
 
-/// The first SwiftData schema. All money values are stored as integer cents (USD).
-///
-/// V1 hasn't shipped yet, so until the first release it may still be edited in place.
+/// Current schema (1.1.0). New attributes have defaults and new relationships start empty.
+/// The original 1.0.0 shape is frozen in `RunwaySchemaV1Original` for lightweight migration.
 enum RunwaySchemaV1: VersionedSchema {
   static var versionIdentifier: Schema.Version {
-    Schema.Version(1, 0, 0)
+    Schema.Version(1, 1, 0)
   }
 
   static var models: [any PersistentModel.Type] {
