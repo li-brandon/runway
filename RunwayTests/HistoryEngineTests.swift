@@ -102,7 +102,7 @@ struct HistoryEngineTests {
     #expect(periods.map(\.spentCents) == [1_000, 85_000, 60_000])
     #expect(periods.map(\.availableCents) == [65_000, 80_000, 70_000])
     #expect(periods.map(\.days.count) == [2, 7, 7])
-    #expect(periods.allSatisfy(\.carryoverEnabledAtStart))
+    #expect(periods.allSatisfy { $0.carryoverEnabledAtStart })
     // June 10 overspends; the negative allowances after it are over too, as on Today.
     #expect(periods[1].daysOver == 5)
     #expect(periods[2].daysOver == 1)
@@ -189,7 +189,7 @@ struct HistoryEngineTests {
       spendablePerPeriodCents: 100_000
     )
     let now = calendar.date(2026, 4, 2, 12)
-    let periods = engine.periods(budget: budget, expenses: [], now: now)
+    let periods = engine.periods(budget: budget, expenses: [HistoryExpense<String>](), now: now)
     #expect(periods.map(\.period.index) == [2, 1, 0])
     #expect(
       periods.map(\.period.start) == [
