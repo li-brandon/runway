@@ -141,6 +141,10 @@ struct AppLaunchTests {
         "budget-change-carryover",
         "budget-change-add-money",
         "budget-change-bills",
+        "privacy-settings",
+        "privacy-locked",
+        "privacy-import-confirm",
+        "privacy-reset-confirm",
       ]
     )
   }
@@ -249,6 +253,10 @@ struct AppLaunchTests {
         .budgetChangeCarryover: 99_500,
         .budgetChangeAddMoney: 99_500,
         .budgetChangeBills: 99_500,
+        .privacySettings: 99_500,
+        .privacyLocked: 99_500,
+        .privacyImportConfirm: 99_500,
+        .privacyResetConfirm: 99_500,
       ]
     )
   }

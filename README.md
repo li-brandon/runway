@@ -150,6 +150,9 @@ History scenarios use the same date with two biweekly periods of sample spending
 `history-list` (the current period, scrolled to its days), `history-period-summary` (the previous
 period's summary, carryover, and categories), and `history-edit` (the edit sheet for yesterday's
 latest expense). `-RunwayScreenshotScrollTo categories` scrolls History to its category totals.
+Privacy scenarios: `privacy-settings` (Privacy & Data with the lock on), `privacy-locked` (the lock
+screen), `privacy-import-confirm`, and `privacy-reset-confirm` (their confirm dialogs). In-memory
+launches keep the lock setting in memory and never show a Face ID prompt.
 The undo scenario delays showing its five-second banner until launch has settled for CI capture.
 
 ```sh
@@ -200,6 +203,7 @@ xcodebuild test \
 | `Runway/Categories` | Category persistence service and pure picker ordering |
 | `Runway/Expenses` | Quick-log and edit draft validation, creation, deletion, and expiring undo |
 | `Runway/Setup` | `BudgetDraft`: budget setup parsing, validation, and saving |
+| `Runway/Privacy` | App lock state machine, data export, import validation, and reset |
 | `Runway/Views` | SwiftUI views |
 | `RunwayTests` | Unit tests (Swift Testing) |
 
@@ -235,8 +239,8 @@ macOS runner. It:
    to 9:41, launches each screenshot scenario (see [Launch arguments](#launch-arguments)), and
    uploads `screenshots/<ticket>-<scenario>.png` as the `screenshots` artifact: setup uses 430,
    categories and category-picker use 440, quick logging uses 432, the four Today scenarios
-   use 433, and the three History scenarios use 434. A failed capture fails
-   the job. Every scenario is captured at default and largest accessibility text sizes. Setup
+   use 433, the three History scenarios use 434, and the privacy scenarios use 437. A failed
+   capture fails the job. Every scenario is captured at default and largest accessibility text sizes. Setup
    scenarios also get a second accessibility capture scrolled to the amount fields, and
    `history-period-summary` one scrolled to its categories.
    `today-normal`, `today-over`, and `history-list` also get dark captures at both sizes, named
@@ -252,5 +256,20 @@ Third-party actions are pinned to commit SHAs.
 Everything you enter stays on your device. Runway has no accounts, analytics, or network code, and
 it doesn't sync. The SwiftData store is local and CloudKit is explicitly turned off. If you delete
 the app, your data is deleted with it.
+
+No analytics or third-party data collection, and no third-party dependencies. Data leaves your
+device only when you share an export yourself. Exported files aren't encrypted.
+
+**Settings › Privacy & Data** has:
+
+- **App lock:** asks for Face ID, Touch ID, or your passcode when you launch or return to Runway,
+  and hides the app in the app switcher. It's off by default.
+- **Export:** every record as versioned JSON, and expenses as CSV, through the share sheet. JSON
+  dates are seconds since 2001-01-01 UTC, which keeps them exact.
+- **Import:** replaces all data with a JSON export, after a confirmation. The whole file is checked
+  first, and any failure leaves your data untouched. Refunds, and derived amounts that can
+  legitimately go below zero, may be negative. All other amounts may not.
+- **Reset:** after a confirmation, erases everything and restores the default categories. The app
+  lock setting stays as it is.
 
 See [docs/branch-protection.md](docs/branch-protection.md) for the rules on `main`.

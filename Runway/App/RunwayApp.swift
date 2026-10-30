@@ -6,10 +6,12 @@ import SwiftUI
 struct RunwayApp: App {
   private let modelContainer: ModelContainer
   private let launchOptions: LaunchOptions
+  @State private var appLock: AppLockController
 
   init() {
     let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
     launchOptions = options
+    _appLock = State(initialValue: AppLockController.make(for: options))
     do {
       let container = try RunwayModelContainer.make(inMemory: options.usesInMemoryStore)
       try CategoryService(context: container.mainContext).seed()
@@ -29,7 +31,9 @@ struct RunwayApp: App {
 
   var body: some Scene {
     WindowGroup {
-      RootView(screenshotScenario: launchOptions.screenshotScenario)
+      AppLockGate(lock: appLock) {
+        RootView(screenshotScenario: launchOptions.screenshotScenario)
+      }
     }
     .modelContainer(modelContainer)
   }
