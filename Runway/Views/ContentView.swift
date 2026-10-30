@@ -38,7 +38,7 @@ struct ContentView: View {
     self.screenshotScenario = screenshotScenario
     _showsSetup = State(initialValue: showsSetup)
     _showsHistory = State(initialValue: screenshotScenario?.isHistory == true)
-    _showsPeriodMoney = State(initialValue: screenshotScenario == .budgetChangeBills)
+    _showsPeriodMoney = State(initialValue: screenshotScenario?.opensPeriodMoney == true)
   }
 
   /// Shrinks the amount in steps down to the scale floor on one line, and only wraps when
