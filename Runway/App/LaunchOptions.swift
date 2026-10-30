@@ -11,7 +11,8 @@ import SwiftData
 ///   `-RunwayScreenshotScrollTo categories` scrolls History to its category totals. Both are
 ///   ignored without `-RunwayInMemoryStore`. The `carryover` target scrolls to the carryover
 ///   setting and is the default for `budget-change-carryover`. The `today` target scrolls Today to
-///   what's left to spend, and `bills` scrolls This Period to its bills.
+///   what's left to spend, `bills` scrolls This Period to its bills, and `extras` scrolls it to the
+///   end of its last extra money row.
 struct LaunchOptions: Equatable, Sendable {
   static let inMemoryStoreArgument = "-RunwayInMemoryStore"
   static let screenshotScenarioArgument = "-RunwayScreenshotScenario"
@@ -22,6 +23,7 @@ struct LaunchOptions: Equatable, Sendable {
     "carryover",
     "today",
     "bills",
+    "extras",
   ]
 
   var usesInMemoryStore = false
@@ -69,6 +71,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case todayOver = "today-over"
   case todayZero = "today-zero"
   case todayNoBudget = "today-no-budget"
+  /// Six-figure amounts on Today: $123,456.78 left, with large spent and allowance figures.
+  case todayLargeAmount = "today-large-amount"
 
   case spendingDay = "spending-day"
   case spendingWeek = "spending-week"
@@ -104,6 +108,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case budgetChangeAddMoney = "budget-change-add-money"
   /// This period's extra money and bills: a gift, Rent paid, and Phone skipped.
   case budgetChangeBills = "budget-change-bills"
+  /// This Period with large extra money, one with a long note, and large bills.
+  case extraMoney = "extra-money"
 
   /// Privacy & Data with the app lock on.
   case privacySettings = "privacy-settings"
@@ -137,6 +143,11 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     }
   }
 
+  /// Opens This Period at launch.
+  var opensPeriodMoney: Bool {
+    self == .budgetChangeBills || self == .extraMoney
+  }
+
   /// Makes this scenario's unsaved edits to the setup screen's draft.
   func prepare(_ draft: inout BudgetDraft) {
     switch self {
@@ -160,8 +171,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
 
   var todayDate: Date? {
     switch self {
-    case .todayNormal, .todayNear, .todayOver, .todayZero, .todayNoBudget,
-      .spendingDay, .spendingWeek, .spendingMonth, .spendingMonthRolling:
+    case .todayNormal, .todayNear, .todayOver, .todayZero, .todayNoBudget, .todayLargeAmount,
+      .extraMoney, .spendingDay, .spendingWeek, .spendingMonth, .spendingMonthRolling:
       Self.fixedToday
     case .historyList, .historyPeriodSummary, .historyEdit, .history500:
       Self.fixedToday
@@ -225,6 +236,16 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
         spendablePerPeriodCents: 110_000
       )
       bills = []
+    case .todayLargeAmount, .extraMoney:
+      // 1,919,750.94 - (123,456.00 + 34,567.89) = 1,761,727.05 available.
+      budget = Budget(
+        periodStart: periodStart,
+        spendablePerPeriodCents: 191_975_094
+      )
+      bills = [
+        FixedBill(name: "Rent", amountCents: 12_345_600, dueDay: 1),
+        FixedBill(name: "Car payment", amountCents: 3_456_789, dueDay: 15),
+      ]
     case .todayZero:
       budget = Budget(periodStart: periodStart, spendablePerPeriodCents: 0)
       bills = []
@@ -252,6 +273,30 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       let rent = bills[0]
       budget.setStatus(.paid(cents: rent.amountCents), of: rent, now: now, calendar: calendar)
       budget.setStatus(.skipped, of: bills[1], now: now, calendar: calendar)
+    }
+    if self == .todayLargeAmount || self == .extraMoney {
+      budget.addExtraMoney(cents: 9_876_543, note: "Signing bonus", now: now, calendar: calendar)
+    }
+    if self == .extraMoney {
+      // Dated yesterday so it reliably sorts last, below the newer bonus.
+      budget.addExtraMoney(
+        cents: 1_234_567,
+        note: "Refund of the security deposit from the apartment we moved out of last spring",
+        now: calendar.date(byAdding: .day, value: -1, to: now) ?? now,
+        calendar: calendar
+      )
+    }
+    if self == .todayLargeAmount {
+      // (1,761,727.05 + 98,765.43 extra) / 11 days = 169,135.68, less 45,678.90 = 123,456.78 left.
+      let service = CategoryService(context: context)
+      try service.seed()
+      try service.createExpense(
+        amountCents: 4_567_890,
+        note: "Car down payment",
+        date: now.addingTimeInterval(-3_600),
+        category: service.categories().first { $0.name == "Shopping" },
+        now: now.addingTimeInterval(-3_600)
+      )
     }
     if self == .todayUndo || isPrivacy {
       try CategoryService(context: context).createExpense(

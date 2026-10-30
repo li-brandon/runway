@@ -106,6 +106,9 @@ jobs:
           xcrun swift-format --version
           xcrun swift-format lint --strict --recursive Runway RunwayTests
 
+      - name: Lint (scale factor)
+        run: sh scripts/lint-scale-factor.sh
+
       - name: Pick simulator
         run: |
           SIMCTL_JSON="$RUNNER_TEMP/simctl-devices.json"
@@ -197,6 +200,7 @@ jobs:
           SCENARIOS="$SCENARIOS budget-change-amounts budget-change-period budget-change-carryover budget-change-add-money budget-change-bills"
           SCENARIOS="$SCENARIOS spending-day spending-week spending-month spending-month-rolling"
           SCENARIOS="$SCENARIOS privacy-settings privacy-locked privacy-import-confirm privacy-reset-confirm"
+          SCENARIOS="$SCENARIOS today-large-amount extra-money"
           ticket_for() {
             case "$1" in
               setup-*) echo 430 ;;
@@ -210,6 +214,7 @@ jobs:
               spending-*) echo 436 ;;
               privacy-import-confirm|privacy-reset-confirm) echo 468 ;;
               privacy-*) echo 437 ;;
+              today-large-amount|extra-money) echo 469 ;;
               *) return 1 ;;
             esac
           }
@@ -374,6 +379,13 @@ jobs:
                 ;;
               budget-change-bills)
                 capture "$SCENARIO" "screenshots/467-$SCENARIO-ax5-bills.png" -RunwayScreenshotScrollTo bills
+                ;;
+              today-large-amount)
+                capture "$SCENARIO" "screenshots/469-$SCENARIO-ax5-today.png" -RunwayScreenshotScrollTo today
+                ;;
+              extra-money)
+                capture "$SCENARIO" "screenshots/469-$SCENARIO-ax5-extras.png" -RunwayScreenshotScrollTo extras
+                capture "$SCENARIO" "screenshots/469-$SCENARIO-ax5-bills.png" -RunwayScreenshotScrollTo bills
                 ;;
             esac
           done

@@ -34,12 +34,14 @@ struct PeriodMoneyView: View {
   var body: some View {
     let period = self.period
     let extras = budget.extraMoneyItems(in: period)
+    let lastExtraID = extras.last?.persistentModelID
     return NavigationStack {
       ScrollViewReader { proxy in
         List {
           Section {
             ForEach(extras) { extra in
               extraRow(extra)
+                .id(extra.persistentModelID)
             }
             .onDelete { offsets in
               remove(offsets.map { extras[$0] })
@@ -74,13 +76,19 @@ struct PeriodMoneyView: View {
         }
         .task {
           let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
-          guard options.screenshotScrollTo == "bills" else { return }
+          let target = options.screenshotScrollTo
+          guard target == "bills" || target == "extras" else { return }
           do {
             try await Task.sleep(for: .milliseconds(300))
           } catch {
             return
           }
-          proxy.scrollTo("bills", anchor: .top)
+          if target == "bills" {
+            proxy.scrollTo("bills", anchor: .top)
+          } else if let lastExtraID {
+            // The row's bottom, so a long note can't push its amount off screen.
+            proxy.scrollTo(lastExtraID, anchor: .bottom)
+          }
         }
       }
       .navigationTitle("This Period")

@@ -90,6 +90,7 @@ struct AppLaunchTests {
     #expect(carryover.screenshotScrollTo == "carryover")
     #expect(LaunchOptions(arguments: arguments + ["today"]).screenshotScrollTo == "today")
     #expect(LaunchOptions(arguments: arguments + ["bills"]).screenshotScrollTo == "bills")
+    #expect(LaunchOptions(arguments: arguments + ["extras"]).screenshotScrollTo == "extras")
     #expect(LaunchOptions(arguments: arguments + ["unknown"]).screenshotScrollTo == nil)
     #expect(LaunchOptions(arguments: arguments).screenshotScrollTo == nil)
     #expect(LaunchOptions(arguments: ["Runway"]).screenshotScrollTo == nil)
@@ -130,6 +131,7 @@ struct AppLaunchTests {
         "today-over",
         "today-zero",
         "today-no-budget",
+        "today-large-amount",
         "spending-day",
         "spending-week",
         "spending-month",
@@ -143,6 +145,7 @@ struct AppLaunchTests {
         "budget-change-carryover",
         "budget-change-add-money",
         "budget-change-bills",
+        "extra-money",
         "privacy-settings",
         "privacy-locked",
         "privacy-import-confirm",
@@ -208,6 +211,28 @@ struct AppLaunchTests {
     #expect(result.remainingPeriodCents == 99_500 + 15_000 + 4_500)
   }
 
+  @Test("The extra money scenario opens This Period with large rows, newest first")
+  func extraMoneyScenario() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    let opensPeriodMoney = ScreenshotScenario.allCases.filter(\.opensPeriodMoney)
+    #expect(opensPeriodMoney == [.budgetChangeBills, .extraMoney])
+
+    let container = try RunwayModelContainer.make(inMemory: true)
+    let context = ModelContext(container)
+    let budget = try #require(
+      try ScreenshotScenario.extraMoney.seed(into: context, now: now, calendar: calendar)
+    )
+    let period = AllowanceEngine(calendar: calendar).period(
+      containing: now,
+      of: BudgetSnapshot(budget)
+    )
+    let extras = budget.extraMoneyItems(in: period)
+    #expect(extras.map(\.amountCents) == [9_876_543, 1_234_567])
+    #expect(extras[0].note == "Signing bonus")
+    #expect(extras[1].note.count > 60)
+    #expect(budget.fixedBills.map(\.amountCents).sorted() == [3_456_789, 12_345_600])
+  }
+
   @Test("Scenarios seed no budget, a healthy one, and one with nothing available")
   func scenarioSeeds() throws {
     let now = calendar.date(2026, 6, 10, 12)
@@ -242,6 +267,7 @@ struct AppLaunchTests {
         .todayNear: 110_000,
         .todayOver: 110_000,
         .todayZero: 0,
+        .todayLargeAmount: 176_172_705,
         .spendingDay: 70_000,
         .spendingWeek: 70_000,
         .spendingMonth: 70_000,
@@ -255,6 +281,7 @@ struct AppLaunchTests {
         .budgetChangeCarryover: 99_500,
         .budgetChangeAddMoney: 99_500,
         .budgetChangeBills: 99_500,
+        .extraMoney: 176_172_705,
         .privacySettings: 99_500,
         .privacyLocked: 99_500,
         .privacyImportConfirm: 99_500,
