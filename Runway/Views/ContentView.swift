@@ -41,24 +41,22 @@ struct ContentView: View {
     _showsPeriodMoney = State(initialValue: screenshotScenario?.opensPeriodMoney == true)
   }
 
-  /// Shrinks the amount in steps down to the scale floor on one line, and only wraps when
-  /// even the floor doesn't fit, so ordinary amounts never break mid-number.
+  /// Shrinks the amount in steps down to the scale floor, then falls back to smaller text styles,
+  /// always on one line so the amount never breaks mid-number.
   private var remainingAmount: some View {
     let text = Money.format(cents: allowance.remainingTodayCents)
-    let size = min(amountSize, 96)
-    let steps: [CGFloat] = [1, 0.85, TextScaling.minimumFactor]
+    let size = min(amountSize, RemainingAmountStyle.maximumSize)
     return ViewThatFits(in: .horizontal) {
-      ForEach(steps, id: \.self) { step in
+      ForEach(RemainingAmountStyle.steps, id: \.self) { style in
         Text(text)
-          .font(.system(size: size * step, weight: .bold, design: .rounded))
-          .lineLimit(1)
+          .font(style.font(fullSize: size))
+          .lineLimit(RemainingAmountStyle.lineLimit)
           .fixedSize(horizontal: true, vertical: false)
       }
       Text(text)
-        .font(
-          .system(size: size * TextScaling.minimumFactor, weight: .bold, design: .rounded)
-        )
-        .fixedSize(horizontal: false, vertical: true)
+        .font(RemainingAmountStyle.lastResort.font(fullSize: size))
+        .lineLimit(RemainingAmountStyle.lineLimit)
+        .minimumScaleFactor(TextScaling.minimumFactor)
     }
   }
 
