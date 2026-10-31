@@ -774,8 +774,7 @@ struct HistoryExpenseRow: View {
         Label("Refund", systemImage: "arrow.uturn.backward")
           .font(.subheadline)
       }
-      Text(Money.format(cents: expense.amountCents))
-        .fontWeight(.semibold)
+      AmountText(cents: expense.amountCents)
     }
   }
 }
@@ -820,9 +819,7 @@ struct HistoryExtraMoneyRow: View {
   }
 
   private var amount: some View {
-    Text(Money.format(cents: extra.amountCents))
-      .fontWeight(.semibold)
-      .minimumScaleFactor(TextScaling.minimumFactor)
+    AmountText(cents: extra.amountCents)
   }
 }
 
@@ -867,9 +864,7 @@ struct HistoryBillPaymentRow: View {
   @ViewBuilder
   private var amount: some View {
     if isPaid {
-      Text(Money.format(cents: mark.paidCents))
-        .fontWeight(.semibold)
-        .minimumScaleFactor(TextScaling.minimumFactor)
+      AmountText(cents: mark.paidCents)
     }
   }
 

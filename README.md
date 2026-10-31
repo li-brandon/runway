@@ -157,7 +157,8 @@ Today scenarios: `today-normal` ($80 left), `today-near` ($10 left), `today-over
 and `today-no-budget` (the empty state with setup closed). These use a fixed local noon on
 June 10, 2026, and categorized expenses including a refund. `today-large-amount` ($123,456.78 left)
 and `extra-money` (This Period with large extra money, a long note, and large bills) use the same
-date.
+date, as does `today-import-max` ($100B left and $100B spent, the import maximum, abbreviated when
+the full amount can't fit).
 History scenarios use the same date with two biweekly periods of sample spending starting May 24:
 `history-list` (the current period, scrolled to its days), `history-period-summary` (the previous
 period's summary, carryover, and categories), and `history-edit` (the edit sheet for yesterday's
@@ -265,7 +266,7 @@ macOS runner. It:
    import and reset confirms, which use 468. `history-before-budget` uses 463b,
    `history-before-budget-bills` and `history-bill-entry-edit` use 476, `history-extra-money` and
    `extra-money-edit-negative` use 475, and
-   `today-large-amount` and `extra-money` use 469. A failed
+   `today-large-amount` and `extra-money` use 469, and `today-import-max` uses 477. A failed
    capture fails the job. Every scenario is captured at default and largest accessibility text sizes. Setup
    scenarios also get a second accessibility capture scrolled to the amount fields, and
    `history-period-summary` one scrolled to its categories, `history-before-budget` and

@@ -24,4 +24,18 @@ enum Money {
   static func format(cents: Int, locale: Locale = .autoupdatingCurrent) -> String {
     dollars(fromCents: cents).formatted(.currency(code: currencyCode).locale(locale))
   }
+
+  /// Formats cents as short USD for when the full amount can't fit, e.g. `$12.3M` in `en_US`.
+  /// Rounds half away from zero to one decimal, moving up a unit when needed: $999,950 is `$1M`.
+  /// Amounts under $1,000 are already short, so they stay exact.
+  static func abbreviated(cents: Int, locale: Locale = .autoupdatingCurrent) -> String {
+    guard cents.magnitude >= 100_000 else { return format(cents: cents, locale: locale) }
+    return dollars(fromCents: cents).formatted(
+      .currency(code: currencyCode)
+        .notation(.compactName)
+        .precision(.fractionLength(0...1))
+        .rounded(rule: .toNearestOrAwayFromZero)
+        .locale(locale)
+    )
+  }
 }

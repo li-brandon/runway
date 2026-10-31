@@ -15,6 +15,39 @@ struct MoneyTests {
     #expect(Money.format(cents: cents, locale: Money.fixedLocale) == expected)
   }
 
+  @Test(
+    "Abbreviates large amounts, moving up a unit rather than showing 1000",
+    arguments: zip(
+      [
+        100_000, 95_000_000, 99_994_999, 99_995_000, 1_230_000_000, 120_000_000_000,
+        125_000_000_000, 99_995_000_000,
+      ],
+      ["$1K", "$950K", "$999.9K", "$1M", "$12.3M", "$1.2B", "$1.3B", "$1B"]
+    )
+  )
+  func abbreviates(cents: Int, expected: String) {
+    #expect(Money.abbreviated(cents: cents, locale: Money.fixedLocale) == expected)
+    #expect(Money.abbreviated(cents: -cents, locale: Money.fixedLocale) == "-\(expected)")
+  }
+
+  @Test("Abbreviates the import maximum without an ellipsis")
+  func abbreviatesImportMaximum() {
+    let maximum = DataImport.maximumMagnitudeCents
+    #expect(Money.abbreviated(cents: maximum, locale: Money.fixedLocale) == "$100B")
+    #expect(Money.abbreviated(cents: -maximum, locale: Money.fixedLocale) == "-$100B")
+  }
+
+  @Test("Amounts under $1,000 stay exact", arguments: [0, 1_234, 99_999, -99_999])
+  func shortAmountsStayExact(cents: Int) {
+    let abbreviated = Money.abbreviated(cents: cents, locale: Money.fixedLocale)
+    #expect(abbreviated == Money.format(cents: cents, locale: Money.fixedLocale))
+  }
+
+  @Test("Abbreviating handles every Int without an ellipsis", arguments: [Int.max, Int.min])
+  func abbreviatesExtremes(cents: Int) {
+    #expect(!Money.abbreviated(cents: cents, locale: Money.fixedLocale).contains("…"))
+  }
+
   @Test("Cents convert to exact decimal dollars")
   func dollarsFromCents() throws {
     #expect(try Money.dollars(fromCents: 1_234) == decimal("12.34"))

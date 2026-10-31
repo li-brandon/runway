@@ -78,6 +78,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case todayNoBudget = "today-no-budget"
   /// Six-figure amounts on Today: $123,456.78 left, with large spent and allowance figures.
   case todayLargeAmount = "today-large-amount"
+  /// Today at the import maximum: $100B left and $100B spent, abbreviated when they can't fit.
+  case todayImportMax = "today-import-max"
 
   case spendingDay = "spending-day"
   case spendingWeek = "spending-week"
@@ -191,7 +193,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   var todayDate: Date? {
     switch self {
     case .todayNormal, .todayNear, .todayOver, .todayZero, .todayNoBudget, .todayLargeAmount,
-      .extraMoney, .spendingDay, .spendingWeek, .spendingMonth, .spendingMonthRolling:
+      .todayImportMax, .extraMoney, .spendingDay, .spendingWeek, .spendingMonth,
+      .spendingMonthRolling:
       Self.fixedToday
     case .historyList, .historyPeriodSummary, .historyEdit, .history500, .historyBeforeBudget,
       .historyBeforeBudgetBills, .historyBillEntryEdit, .historyExtraMoney,
@@ -267,7 +270,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
         FixedBill(name: "Rent", amountCents: 12_345_600, dueDay: 1),
         FixedBill(name: "Car payment", amountCents: 3_456_789, dueDay: 15),
       ]
-    case .todayZero:
+    case .todayZero, .todayImportMax:
       budget = Budget(periodStart: periodStart, spendablePerPeriodCents: 0)
       bills = []
     case .historyList, .historyPeriodSummary, .historyEdit, .history500, .historyBeforeBudget,
@@ -316,6 +319,22 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       try service.createExpense(
         amountCents: 4_567_890,
         note: "Car down payment",
+        date: now.addingTimeInterval(-3_600),
+        category: service.categories().first { $0.name == "Shopping" },
+        now: now.addingTimeInterval(-3_600)
+      )
+    }
+    if self == .todayImportMax {
+      // Each amount is within the import limit: 22 x 100B extra / 11 days = 200B, less 100B spent.
+      let maximum = DataImport.maximumMagnitudeCents
+      for _ in 0..<22 {
+        budget.addExtraMoney(cents: maximum, note: "Windfall", now: now, calendar: calendar)
+      }
+      let service = CategoryService(context: context)
+      try service.seed()
+      try service.createExpense(
+        amountCents: maximum,
+        note: "Island",
         date: now.addingTimeInterval(-3_600),
         category: service.categories().first { $0.name == "Shopping" },
         now: now.addingTimeInterval(-3_600)
