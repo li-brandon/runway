@@ -3,7 +3,8 @@ import SwiftData
 import SwiftUI
 
 /// Past days and periods for the saved budget. Every figure comes from `HistoryEngine` on each
-/// render, so editing or deleting an expense updates later days, carryover, and Today.
+/// render, so editing or deleting an expense or extra money updates later days, carryover, and
+/// Today.
 struct HistoryView: View {
   let budget: Budget
   /// The time History treats as now; Today passes its own, fixed for screenshots.
@@ -28,8 +29,8 @@ struct HistoryView: View {
   @State private var editing: Expense?
   @State private var editingExtra: ExtraMoney?
   @State private var editNow = Date.now
-  /// Only the latest delete can be undone; see `ExpenseUndoSlot`.
-  @State private var undoSlot = ExpenseUndoSlot()
+  /// Only the latest delete can be undone; see `HistoryUndoSlot`.
+  @State private var undoSlot = HistoryUndoSlot()
   @State private var errorMessage: String?
 
   // Explicit because the private `@Query` makes the memberwise initializer private.
@@ -70,20 +71,22 @@ struct HistoryView: View {
     )
     let index = min(periodOffset, periods.count - 1)
     let expensesByDay = engine.itemsByDay(expenses, in: periods[index].period) { $0.date }
+    // The relationship has no order, so money on the same day needs one to keep rows in place.
+    let extras = budget.extraMoney.sorted {
+      ($0.note, $0.amountCents) < ($1.note, $1.amountCents)
+    }
+    let extraMoneyByDay = engine.itemsByDay(extras, in: periods[index].period) { $0.date }
     // They follow the oldest period, so only its page lists them.
-    var beforeBudget: [BeforeBudgetItem] = []
+    var beforeBudget: [HistoryItem] = []
     if index == periods.count - 1 {
-      // The relationship has no order, so money on the same day needs one to keep rows in place.
-      let extras = budget.extraMoney.sorted {
-        ($0.note, $0.amountCents) < ($1.note, $1.amountCents)
-      }
-      let items = expenses.map(BeforeBudgetItem.expense) + extras.map(BeforeBudgetItem.extraMoney)
+      let items = expenses.map(HistoryItem.expense) + extras.map(HistoryItem.extraMoney)
       beforeBudget = engine.beforeBudget(items, budget: BudgetSnapshot(budget)) { $0.date }
     }
     return HistoryPage(
       periods: periods,
       index: index,
       expensesByDay: expensesByDay,
+      extraMoneyByDay: extraMoneyByDay,
       beforeBudget: beforeBudget
     )
   }
@@ -111,6 +114,10 @@ struct HistoryView: View {
             ForEach(expensesByDay[day.date] ?? []) { expense in
               expenseRow(expense)
             }
+            ForEach(page.extraMoneyByDay[day.date] ?? []) { extra in
+              extraMoneyRow(extra)
+                .id(extra.persistentModelID)
+            }
           }
         }
         if !page.beforeBudget.isEmpty {
@@ -123,8 +130,8 @@ struct HistoryView: View {
       }
     }
     .safeAreaInset(edge: .bottom) {
-      if undoSlot.pending != nil {
-        undoBanner()
+      if let pending = undoSlot.pending {
+        undoBanner(pending)
       }
     }
     .navigationTitle("History")
@@ -295,7 +302,7 @@ struct HistoryView: View {
   }
 
   /// The title is a row, like a day's summary, so scrolling to it can't leave it off screen.
-  private func beforeBudgetSection(_ items: [BeforeBudgetItem]) -> some View {
+  private func beforeBudgetSection(_ items: [HistoryItem]) -> some View {
     Section {
       Text("Before budget")
         .font(.headline)
@@ -313,7 +320,7 @@ struct HistoryView: View {
   private static let beforeBudgetID = "before-budget"
 
   @ViewBuilder
-  private func beforeBudgetRow(_ item: BeforeBudgetItem) -> some View {
+  private func beforeBudgetRow(_ item: HistoryItem) -> some View {
     switch item {
     case .expense(let expense):
       expenseRow(expense, showsDay: true)
@@ -390,18 +397,28 @@ struct HistoryView: View {
     }
   }
 
-  private func undoBanner() -> some View {
+  private func undoBanner(_ deletion: HistoryDeletion) -> some View {
+    let title: String
+    let hint: String
+    switch deletion {
+    case .expense:
+      title = "Expense deleted"
+      hint = "Restores the expense you just deleted."
+    case .extraMoney:
+      title = "Extra money deleted"
+      hint = "Restores the extra money you just deleted."
+    }
     let stacked = AnyLayout(VStackLayout(spacing: 8))
     let inline = AnyLayout(HStackLayout(spacing: 16))
     let layout = dynamicTypeSize.isAccessibilitySize ? stacked : inline
     return layout {
-      Text("Expense deleted")
+      Text(title)
         .font(.headline)
       Button("Undo") {
         restore()
       }
       .frame(minWidth: 44, minHeight: 44)
-      .accessibilityHint("Restores the expense you just deleted.")
+      .accessibilityHint(hint)
     }
     .padding()
     .frame(maxWidth: .infinity)
@@ -442,12 +459,11 @@ struct HistoryView: View {
     editingExtra = extra
   }
 
-  /// Like This Period's delete, with no undo.
   private func delete(_ extra: ExtraMoney) {
     editingExtra = nil
-    budget.removeExtraMoney(extra)
     do {
-      try modelContext.save()
+      // Replaces any earlier deletion, which stays deleted without an undo.
+      try undoSlot.delete(extra, from: budget, in: modelContext, now: .now)
     } catch {
       modelContext.rollback()
       errorMessage = error.localizedDescription
@@ -491,7 +507,8 @@ struct HistoryView: View {
     guard let screenshotScenario, screenshotScenario.isHistory else { return }
     let today = calendar.startOfDay(for: now)
     switch screenshotScenario {
-    case .historyPeriodSummary, .history500, .historyBeforeBudget:
+    case .historyPeriodSummary, .history500, .historyBeforeBudget, .historyExtraMoney,
+      .extraMoneyEditNegative:
       periodOffset = 1
     default:
       break
@@ -506,6 +523,11 @@ struct HistoryView: View {
     if screenshotScenario == .historyEdit, let yesterdaysLatest {
       edit(yesterdaysLatest)
     }
+    if screenshotScenario == .extraMoneyEditNegative,
+      let negative = budget.extraMoney.first(where: { $0.amountCents < 0 })
+    {
+      edit(negative)
+    }
     let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
     if options.screenshotScrollTo == "categories" {
       proxy.scrollTo("categories", anchor: .top)
@@ -513,24 +535,19 @@ struct HistoryView: View {
       let last = page.beforeBudget.last
     {
       // The list's last row at the top, so the section's footer shows below it even when large
-      // text fills the screen. Section footers aren't scroll targets, so scroll to the row, then
-      // repeat once the lazily built rows above it have their real heights.
-      proxy.scrollTo(last.id, anchor: .top)
-      do {
-        try await Task.sleep(for: .milliseconds(800))
-      } catch {
-        return
-      }
-      proxy.scrollTo(last.id, anchor: .top)
+      // text fills the screen. Section footers aren't scroll targets, so scroll to the row.
+      await scrollAndSettle(proxy, to: last.id)
+    } else if options.screenshotScrollTo == "extra-money-row",
+      let extra = page.extraMoneyByDay.values.first?.first
+    {
+      await scrollAndSettle(proxy, to: extra.persistentModelID)
     } else if screenshotScenario == .historyBeforeBudget {
-      // Repeat once the lazily built rows above the section have their real heights.
-      proxy.scrollTo(Self.beforeBudgetID, anchor: .top)
-      do {
-        try await Task.sleep(for: .milliseconds(800))
-      } catch {
-        return
-      }
-      proxy.scrollTo(Self.beforeBudgetID, anchor: .top)
+      await scrollAndSettle(proxy, to: Self.beforeBudgetID)
+    } else if screenshotScenario == .historyExtraMoney,
+      let day = page.extraMoneyByDay.keys.first
+    {
+      // The day's summary at the top, with its expenses and extra money below it.
+      await scrollAndSettle(proxy, to: day)
     } else if screenshotScenario == .historyList, let first = days.first {
       proxy.scrollTo(first.date, anchor: .top)
     } else if screenshotScenario == .history500, let oldest = page.selected.days.last {
@@ -538,21 +555,35 @@ struct HistoryView: View {
       proxy.scrollTo(oldest.date, anchor: .top)
     }
   }
+
+  /// Scrolls to `id`, then repeats once the lazily built rows above it have their real heights.
+  private func scrollAndSettle<ID: Hashable>(_ proxy: ScrollViewProxy, to id: ID) async {
+    proxy.scrollTo(id, anchor: .top)
+    do {
+      try await Task.sleep(for: .milliseconds(800))
+    } catch {
+      return
+    }
+    proxy.scrollTo(id, anchor: .top)
+  }
 }
 
-/// One render of History: every period newest first, the selected one, its expenses by day, and,
-/// on the oldest period's page, the expenses and extra money before the budget's start.
+/// One render of History: every period newest first, the selected one, its expenses and extra
+/// money by day, and, on the oldest period's page, the expenses and extra money before the
+/// budget's start.
 struct HistoryPage {
   let periods: [HistoryPeriod<PersistentIdentifier?>]
   let index: Int
   let expensesByDay: [Date: [Expense]]
-  let beforeBudget: [BeforeBudgetItem]
+  /// Listed apart from `expensesByDay` because it's income: its rows never add to a day's spending.
+  let extraMoneyByDay: [Date: [ExtraMoney]]
+  let beforeBudget: [HistoryItem]
 
   var selected: HistoryPeriod<PersistentIdentifier?> { periods[index] }
 }
 
-/// One row of the Before budget section.
-enum BeforeBudgetItem: Identifiable {
+/// An expense or extra money: a row of the Before budget section, or what Undo restored.
+enum HistoryItem: Identifiable {
   case expense(Expense)
   case extraMoney(ExtraMoney)
 
@@ -682,7 +713,8 @@ struct HistoryExpenseRow: View {
 }
 
 /// Extra money in History: marked with a symbol and words where an expense shows its category,
-/// with the note and day. It has no time of day, so only the date shows.
+/// with the note and day. It has no time of day, so only the date shows. The symbol follows the
+/// amount's sign.
 struct HistoryExtraMoneyRow: View {
   let extra: ExtraMoney
 
@@ -716,7 +748,7 @@ struct HistoryExtraMoneyRow: View {
   }
 
   private var title: some View {
-    Label("Extra money", systemImage: "plus.circle")
+    Label("Extra money", systemImage: extra.amountCents < 0 ? "minus.circle" : "plus.circle")
   }
 
   private var amount: some View {

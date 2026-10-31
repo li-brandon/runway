@@ -280,7 +280,7 @@ struct HistoryEditingTests {
     #expect(before.days.map(\.spentCents) == [0, 5_000, 5_000, 0])
     #expect(before.days.map(\.allowanceCents) == [15_000, 13_000, 11_666, 10_000])
 
-    var slot = ExpenseUndoSlot()
+    var slot = HistoryUndoSlot()
     try slot.delete(lunch, in: context, now: now)
     #expect(slot.pending?.note == "Lunch")
     let afterLunch = try history(now: now)[0]
@@ -302,7 +302,7 @@ struct HistoryEditingTests {
     // Undo restores only the bus fare and empties the slot.
     let restored = try #require(try slot.undo(in: context, now: now.addingTimeInterval(2)))
     #expect(restored.note == "Bus")
-    #expect(restored.category?.name == "Transport")
+    #expect(restored.expense?.category?.name == "Transport")
     #expect(slot.pending == nil)
     #expect(try savedExpenses().map(\.note) == ["Coffee", "Bus"])
     #expect(try history(now: now)[0] == afterLunch)
@@ -323,7 +323,7 @@ struct HistoryEditingTests {
     let second = try service.createExpense(amountCents: 400, date: date, now: date)
     try context.save()
 
-    var slot = ExpenseUndoSlot()
+    var slot = HistoryUndoSlot()
     try slot.delete(first, in: context, now: now)
     let firstDeadline = try #require(slot.pending?.expiresAt)
     try slot.delete(second, in: context, now: now.addingTimeInterval(2))
@@ -440,7 +440,7 @@ struct HistoryEditingTests {
     #expect(editablePeriod(of: lunch).start == calendar.date(2026, 6, 3))
 
     // Delete and undo work as they do for any other expense.
-    var slot = ExpenseUndoSlot()
+    var slot = HistoryUndoSlot()
     try slot.delete(coffee, in: context, now: now)
     #expect(try savedInFreshContext().map(\.note).sorted() == ["Dinner", "Lunch"])
     #expect(try page(now: now).beforeBudget.map(\.note) == ["Dinner"])
@@ -449,7 +449,7 @@ struct HistoryEditingTests {
     #expect(try page(now: now).beforeBudget.map(\.note) == ["Dinner", "Coffee"])
     #expect(try page(now: now).selected.spentCents == 2_000)
 
-    try slot.delete(restored, in: context, now: now)
+    try slot.delete(try #require(restored.expense), in: context, now: now)
     #expect(try savedInFreshContext().map(\.note).sorted() == ["Dinner", "Lunch"])
     #expect(try page(now: now).beforeBudget.map(\.note) == ["Dinner"])
   }
@@ -758,6 +758,207 @@ struct HistoryEditingTests {
     #expect(try savedExtrasInFreshContext().map(\.note) == ["Refund"])
   }
 
+  // MARK: - Extra money in periods
+
+  @Test("Past and current pages list extra money by day, apart from spending")
+  func extraMoneyRowsByDay() throws {
+    let lunch = calendar.date(2026, 6, 3, 12)
+    try service.createExpense(amountCents: 2_000, note: "Lunch", date: lunch, now: lunch)
+    try addExtra(25_000, note: "Gift", on: calendar.date(2026, 6, 3))
+    try addExtra(1_000, note: "Cashback", on: calendar.date(2026, 6, 3))
+    try addExtra(5_000, note: "Bonus", on: calendar.date(2026, 6, 9))
+    try addExtra(9_000, note: "Early", on: calendar.date(2026, 5, 28))
+    let now = calendar.date(2026, 6, 10, 12)
+
+    let past = try page(periodOffset: 1, now: now)
+    let day = calendar.date(2026, 6, 3)
+    #expect(past.extraMoneyByDay.count == 1)
+    #expect(past.extraMoneyByDay[day]?.map(\.note) == ["Cashback", "Gift"])
+    #expect(past.expensesByDay[day]?.map(\.note) == ["Lunch"])
+    let row = try #require(past.selected.days.first { $0.date == day })
+    #expect(row.spentCents == 2_000)
+    #expect(row.allowanceCents == (70_000 + 26_000) / 5)
+    #expect(past.selected.spentCents == 2_000)
+    #expect(past.selected.extraCents == 26_000)
+    #expect(past.selected.categories.map(\.spentCents) == [2_000])
+    #expect(past.selected.carryOutCents == 94_000)
+
+    let current = try page(periodOffset: 0, now: now)
+    #expect(current.extraMoneyByDay[calendar.date(2026, 6, 9)]?.map(\.note) == ["Bonus"])
+    #expect(current.extraMoneyByDay.count == 1)
+  }
+
+  @Test("Editing a past period's extra money keeps it in that period and updates its figures")
+  func editExtraMoneyInPastPeriod() throws {
+    let extra = try addExtra(25_000, note: "Gift", on: calendar.date(2026, 6, 3))
+    let now = calendar.date(2026, 6, 10, 12)
+    let period = editablePeriod(of: extra)
+    #expect(period.start == calendar.date(2026, 6, 1))
+
+    var draft = moneyDraft(extra)
+    draft.amountText = "100"
+    // A date after its period clamps to the period's last day.
+    draft.date = now
+    #expect(draft.update(extra, period: period, now: now, calendar: calendar))
+    try context.save()
+    #expect(extra.date == calendar.date(2026, 6, 7))
+    let shown = try page(periodOffset: 1, now: now)
+    #expect(shown.extraMoneyByDay[calendar.date(2026, 6, 7)]?.map(\.amountCents) == [10_000])
+    #expect(shown.selected.carryOutCents == 80_000)
+  }
+
+  @Test("Undo restores deleted extra money's amount, sign, note, and exact date, and the figures")
+  func deleteAndUndoExtraMoney() throws {
+    let extra = try addExtra(-4_250, note: "Bank correction", on: calendar.date(2026, 6, 3))
+    let imported = calendar.date(2026, 6, 3, 15)
+    extra.date = imported
+    try context.save()
+    let now = calendar.date(2026, 6, 10, 12)
+    let before = try history(now: now)
+    let todayBefore = try today(now: now)
+    #expect(before[1].extraCents == -4_250)
+
+    var slot = HistoryUndoSlot()
+    try slot.delete(extra, from: budget, in: context, now: now)
+    #expect(try savedExtrasInFreshContext().isEmpty)
+    #expect(budget.extraMoney.isEmpty)
+    #expect(try history(now: now)[1].extraCents == 0)
+
+    let restored = try #require(try slot.undo(in: context, now: now.addingTimeInterval(4)))
+    #expect(slot.pending == nil)
+    guard case .extraMoney(let money) = restored else {
+      Issue.record("Expected extra money")
+      return
+    }
+    #expect(money.budget === budget)
+    let saved = try #require(try savedExtrasInFreshContext().first)
+    #expect(saved.amountCents == -4_250)
+    #expect(saved.note == "Bank correction")
+    #expect(saved.date == imported)
+    #expect(try history(now: now) == before)
+    #expect(try today(now: now) == todayBefore)
+  }
+
+  @Test("Undo of extra money expires after five seconds, leaving it deleted")
+  func extraMoneyUndoExpires() throws {
+    let extra = try addExtra(1_000, note: "Gift", on: calendar.date(2026, 6, 3))
+    let now = calendar.date(2026, 6, 10, 12)
+    var slot = HistoryUndoSlot()
+    try slot.delete(extra, from: budget, in: context, now: now)
+    #expect(slot.pending?.expiresAt == now.addingTimeInterval(5))
+    #expect(try slot.undo(in: context, now: now.addingTimeInterval(5)) == nil)
+    #expect(slot.pending == nil)
+    #expect(try savedExtrasInFreshContext().isEmpty)
+  }
+
+  @Test("A new delete of either kind replaces the pending undo")
+  func undoSlotAcrossKinds() throws {
+    let date = calendar.date(2026, 6, 3, 12)
+    let now = calendar.date(2026, 6, 10, 12)
+    let lunch = try service.createExpense(amountCents: 2_000, note: "Lunch", date: date, now: date)
+    let bus = try service.createExpense(amountCents: 300, note: "Bus", date: date, now: date)
+    let gift = try addExtra(25_000, note: "Gift", on: date)
+    try context.save()
+
+    // Money replaces an expense: only the money comes back.
+    var slot = HistoryUndoSlot()
+    try slot.delete(lunch, in: context, now: now)
+    try slot.delete(gift, from: budget, in: context, now: now)
+    let money = try #require(try slot.undo(in: context, now: now))
+    #expect(money.note == "Gift")
+    #expect(money.expense == nil)
+    #expect(try savedExpenses().map(\.note) == ["Bus"])
+    #expect(try savedExtrasInFreshContext().map(\.note) == ["Gift"])
+
+    // An expense replaces money: only the expense comes back.
+    guard case .extraMoney(let restoredGift) = money else {
+      Issue.record("Expected extra money")
+      return
+    }
+    try slot.delete(restoredGift, from: budget, in: context, now: now)
+    try slot.delete(bus, in: context, now: now)
+    let expense = try #require(try slot.undo(in: context, now: now))
+    #expect(expense.expense?.note == "Bus")
+    #expect(try savedExpenses().map(\.note) == ["Bus"])
+    #expect(try savedExtrasInFreshContext().isEmpty)
+    #expect(try slot.undo(in: context, now: now) == nil)
+  }
+
+  @Test("The sign control shows the saved sign and can keep or flip it")
+  func extraMoneySign() throws {
+    let date = calendar.date(2026, 6, 3)
+    let now = calendar.date(2026, 6, 10, 12)
+    let positive = try addExtra(25_000, note: "Gift", on: date)
+    let negative = try addExtra(-1_250, note: "Correction", on: date)
+
+    var addedDraft = moneyDraft(positive)
+    #expect(!addedDraft.isNegative)
+    #expect(addedDraft.amountCents == 25_000)
+    var removedDraft = moneyDraft(negative)
+    #expect(removedDraft.isNegative)
+    #expect(removedDraft.amountText == "$12.50")
+    #expect(removedDraft.amountCents == -1_250)
+
+    // Kept negative through a save.
+    let period = editablePeriod(of: negative)
+    removedDraft.note = "Fee"
+    #expect(removedDraft.update(negative, period: period, now: now, calendar: calendar))
+    #expect(negative.amountCents == -1_250)
+
+    // Flipped both ways.
+    removedDraft.isNegative = false
+    #expect(removedDraft.update(negative, period: period, now: now, calendar: calendar))
+    #expect(negative.amountCents == 1_250)
+    addedDraft.isNegative = true
+    #expect(addedDraft.update(positive, period: period, now: now, calendar: calendar))
+    #expect(positive.amountCents == -25_000)
+
+    // An invalid amount changes nothing, whichever the sign.
+    addedDraft.amountText = "0"
+    addedDraft.isNegative = false
+    #expect(!addedDraft.update(positive, period: period, now: now, calendar: calendar))
+    #expect(positive.amountCents == -25_000)
+  }
+
+  @Test("The extra money screenshots seed a row among expenses and a negative amount")
+  func extraMoneyScreenshotSeeds() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    let lastDay = calendar.date(2026, 6, 6)
+
+    let rowContainer = try RunwayModelContainer.make(inMemory: true)
+    let rowContext = ModelContext(rowContainer)
+    let rowBudget = try #require(
+      try ScreenshotScenario.historyExtraMoney.seed(into: rowContext, now: now, calendar: calendar)
+    )
+    let shown = HistoryView.makePage(
+      budget: rowBudget,
+      expenses: try rowContext.fetch(FetchDescriptor<Expense>()),
+      periodOffset: 1,
+      now: now,
+      calendar: calendar
+    )
+    #expect(shown.extraMoneyByDay.count == 1)
+    #expect(shown.extraMoneyByDay[lastDay]?.map(\.note) == ["Birthday gift"])
+    #expect(shown.expensesByDay[lastDay]?.count == 2)
+    #expect(shown.selected.spentCents == 78_610)
+    #expect(shown.selected.extraCents == 15_000)
+    #expect(shown.selected.carryOutCents == 46_390)
+
+    let editContainer = try RunwayModelContainer.make(inMemory: true)
+    let editContext = ModelContext(editContainer)
+    let editBudget = try #require(
+      try ScreenshotScenario.extraMoneyEditNegative.seed(
+        into: editContext,
+        now: now,
+        calendar: calendar
+      )
+    )
+    let negative = try #require(editBudget.extraMoney.first)
+    #expect(negative.date == lastDay)
+    #expect(negative.amountCents == -4_250)
+    #expect(ExtraMoneyDraft(extra: negative).isNegative)
+  }
+
   @Test("History screenshots seed two biweekly periods with carryover and some days over")
   func screenshotSeed() throws {
     let now = calendar.date(2026, 6, 10, 12)
@@ -900,5 +1101,28 @@ struct HistoryEditingTests {
     let shown = try #require(page)
     #expect(shown.periods.count >= 24)
     #expect(shown.periods.reduce(0) { $0 + $1.spentCents } == totalCents)
+  }
+}
+
+extension HistoryItem {
+  fileprivate var expense: Expense? {
+    if case .expense(let expense) = self { return expense }
+    return nil
+  }
+}
+
+extension HistoryDeletion {
+  fileprivate var note: String {
+    switch self {
+    case .expense(let deletion): deletion.note
+    case .extraMoney(let deletion): deletion.note
+    }
+  }
+
+  fileprivate var amountCents: Int {
+    switch self {
+    case .expense(let deletion): deletion.amountCents
+    case .extraMoney(let deletion): deletion.amountCents
+    }
   }
 }

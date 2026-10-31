@@ -336,6 +336,26 @@ struct HistoryEngineTests {
     #expect(byDay[calendar.date(2026, 6, 1)]?.map(\.name) == ["first"])
   }
 
+  @Test("Extra money raises allowances from its day but never counts as spending")
+  func extraMoneyIsNotSpending() {
+    var budget = weekly
+    budget.extraMoney = [
+      ExtraMoneySnapshot(amountCents: 7_000, date: calendar.date(2026, 6, 3))
+    ]
+    let expenses = [historyExpense(5_000, calendar.date(2026, 6, 2, 12))]
+    let periods = engine.periods(
+      budget: budget,
+      expenses: expenses,
+      now: calendar.date(2026, 6, 4, 12)
+    )
+    let period = periods[0]
+    #expect(period.spentCents == 5_000)
+    #expect(period.extraCents == 7_000)
+    #expect(period.days.map(\.spentCents) == [0, 0, 5_000, 0])
+    #expect(period.days.map(\.allowanceCents) == [18_000, 14_400, 11_666, 10_000])
+    expectMatchesAllowanceEngine(periods, budget: budget, expenses: expenses)
+  }
+
   @Test("Hundreds of expenses over months compute quickly and match the allowance engine")
   func manyExpenses() {
     let budget = BudgetSnapshot(
