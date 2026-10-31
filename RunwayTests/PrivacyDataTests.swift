@@ -73,6 +73,9 @@ struct PrivacyDataTests {
     let extra = ExtraMoney(amountCents: 15_000, note: "Gift", date: calendar.date(2026, 6, 5))
     context.insert(extra)
     extra.budget = budget
+    let removed = ExtraMoney(amountCents: -4_250, note: "Fix", date: calendar.date(2026, 6, 8))
+    context.insert(removed)
+    removed.budget = budget
 
     let paid = BillPayment(
       isSkipped: false,
@@ -158,6 +161,7 @@ struct PrivacyDataTests {
     #expect(expenses[0].date == calendar.date(2026, 6, 2, 12).addingTimeInterval(0.123_456))
     #expect(expenses[1].amountCents == -500)
     #expect(expenses[1].category?.isSystem == true)
+    #expect(budget.extraMoney.map(\.amountCents).sorted() == [-4_250, 15_000])
   }
 
   @Test("Import replaces all existing data")
@@ -379,7 +383,6 @@ struct PrivacyDataTests {
     try expectRejected(.negativeAmount("budget savings")) { $0.budgets[0].savingsCents = -1 }
     try expectRejected(.negativeAmount("budget income")) { $0.budgets[0].incomeCents = -1 }
     try expectRejected(.negativeAmount("bill amount")) { $0.fixedBills[0].amountCents = -1 }
-    try expectRejected(.negativeAmount("extra money amount")) { $0.extraMoney[0].amountCents = -1 }
     try expectRejected(.negativeAmount("bill payment amount")) { $0.billPayments[0].paidCents = -1 }
   }
 
@@ -388,6 +391,7 @@ struct PrivacyDataTests {
     let snapshot = try validSnapshot()
     #expect(snapshot.expenses.contains { $0.amountCents < 0 })
     #expect(snapshot.amountChanges.contains { $0.previousAvailableCents < 0 })
+    #expect(snapshot.extraMoney.contains { $0.amountCents < 0 })
     #expect(snapshot.billPayments.contains { $0.adjustmentCents < 0 })
     #expect(snapshot.billPayments.contains { $0.plannedCents < 0 })
     _ = try DataImport.validate(snapshot)

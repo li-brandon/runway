@@ -149,7 +149,8 @@ enum DataImport {
 
     for extra in snapshot.extraMoney {
       try checkReference(extra.budgetID, in: budgetIDs, field: "extra money budget")
-      try checkAmount(extra.amountCents, field: "extra money amount")
+      // The sign control lets people remove money, so only the size is limited.
+      try checkSignedAmount(extra.amountCents, field: "extra money amount")
       try checkDate(extra.date, field: "extra money date")
     }
 

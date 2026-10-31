@@ -289,8 +289,8 @@ device only when you share an export yourself. Exported files aren't encrypted.
 - **Export:** every record as versioned JSON, and expenses as CSV, through the share sheet. JSON
   dates are seconds since 2001-01-01 UTC, which keeps them exact.
 - **Import:** replaces all data with a JSON export, after a confirmation. The whole file is checked
-  first, and any failure leaves your data untouched. Refunds, and derived amounts that can
-  legitimately go below zero, may be negative. All other amounts may not.
+  first, and any failure leaves your data untouched. Refunds, removed extra money, and derived
+  amounts that can legitimately go below zero, may be negative. All other amounts may not.
 - **Reset:** after a confirmation, erases everything and restores the default categories. The app
   lock setting stays as it is.
 
