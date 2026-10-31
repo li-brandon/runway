@@ -978,7 +978,7 @@ struct HistoryEditingTests {
     let baseline = try history(now: now)
 
     var slot = HistoryUndoSlot()
-    try slot.delete(paid, from: budget, in: context, now: now)
+    try slot.delete(paid, from: budget, in: context, now: now, calendar: calendar)
     #expect(try ModelContext(container).fetchCount(FetchDescriptor<BillPayment>()) == 1)
     #expect(budget.billPayments.count == 1)
     #expect(try page(periodOffset: 1, now: now).beforeBudget.count == 1)
@@ -995,7 +995,8 @@ struct HistoryEditingTests {
     #expect(try ModelContext(container).fetchCount(FetchDescriptor<BillPayment>()) == 2)
     #expect(money.paidCents == 20_000)
     #expect(money.plannedCents == 30_000)
-    #expect(money.adjustmentCents == 10_000)
+    // Restoring chains it to the skipped mark before it: $100 back, down from $300.
+    #expect(money.adjustmentCents == -20_000)
     #expect(money.sequence == 2)
     #expect(money.date == imported)
     #expect(!money.isSkipped)
@@ -1011,7 +1012,7 @@ struct HistoryEditingTests {
     let now = calendar.date(2026, 6, 10, 12)
 
     var slot = HistoryUndoSlot()
-    try slot.delete(saved, from: budget, in: context, now: now)
+    try slot.delete(saved, from: budget, in: context, now: now, calendar: calendar)
     budget.fixedBills.removeAll { $0 === rent }
     context.delete(rent)
     try context.save()
@@ -1023,11 +1024,132 @@ struct HistoryEditingTests {
     #expect(orphan.bill == nil)
     #expect(restored.note == "")
 
-    try slot.delete(orphan, from: budget, in: context, now: now)
+    try slot.delete(orphan, from: budget, in: context, now: now, calendar: calendar)
     #expect(slot.pending?.expiresAt == now.addingTimeInterval(5))
     #expect(try slot.undo(in: context, now: now.addingTimeInterval(5)) == nil)
     #expect(slot.pending == nil)
     #expect(try ModelContext(container).fetchCount(FetchDescriptor<BillPayment>()) == 0)
+  }
+
+  // MARK: - Bill marks staying chained
+
+  /// Moves the start without recording a schedule change, as it's only used on the first day.
+  func moveStart(to start: Date, now: Date) throws {
+    var budgetDraft = BudgetDraft(budget: budget, locale: Money.fixedLocale)
+    budgetDraft.periodStart = start
+    #expect(budgetDraft.apply(to: budget, now: now, calendar: calendar))
+    try context.save()
+    #expect(budget.periodStart == start)
+    #expect(budget.scheduleChanges.isEmpty)
+  }
+
+  /// Marks `bill` paid $200 of $300 and then skipped on the budget's first day, chained like any
+  /// marks in a period, then moves the start later so both are dated before it.
+  func chainedMarksBeforeStart(
+    of bill: FixedBill,
+    now: Date
+  ) throws -> (paid: BillPayment, skipped: BillPayment) {
+    let paid = try mark(bill, .paid(cents: 20_000), on: now)
+    let skipped = try mark(bill, .skipped, on: now)
+    #expect(paid.adjustmentCents == 10_000)
+    #expect(skipped.adjustmentCents == 20_000)
+    try moveStart(to: calendar.date(2026, 6, 3), now: now)
+    return (paid, skipped)
+  }
+
+  /// Moves the start back to the first day, then checks the oldest period gets back all of the
+  /// skipped $300: $400 available + $300.
+  func expectFullCreditOnceInPeriod(of bill: FixedBill, now: Date) throws {
+    try moveStart(to: calendar.date(2026, 6, 1), now: now)
+    let oldest = try page(periodOffset: 1, now: calendar.date(2026, 6, 11, 12)).selected
+    #expect(oldest.extraCents == 30_000)
+    #expect(oldest.carryOutCents == 70_000)
+    #expect(budget.status(of: bill, in: oldest.period) == .skipped)
+  }
+
+  @Test("Editing an earlier bill mark keeps later marks adding up to the latest status")
+  func editEarlierMarkKeepsChain() throws {
+    let rent = try addBill()
+    let now = calendar.date(2026, 6, 1, 12)
+    let (paid, skipped) = try chainedMarksBeforeStart(of: rent, now: now)
+
+    var draft = billDraft(paid)
+    draft.amountText = "250"
+    #expect(draft.update(paid, period: beforeBudgetLimits, now: now, calendar: calendar))
+    try context.save()
+    #expect(paid.adjustmentCents == 5_000)
+    #expect(skipped.adjustmentCents == 25_000)
+
+    try expectFullCreditOnceInPeriod(of: rent, now: now)
+  }
+
+  @Test("Deleting an earlier bill mark keeps later marks adding up to the latest status")
+  func deleteEarlierMarkKeepsChain() throws {
+    let rent = try addBill()
+    let now = calendar.date(2026, 6, 1, 12)
+    let (paid, skipped) = try chainedMarksBeforeStart(of: rent, now: now)
+
+    var slot = HistoryUndoSlot()
+    try slot.delete(paid, from: budget, in: context, now: now, calendar: calendar)
+    #expect(skipped.adjustmentCents == 30_000)
+
+    try expectFullCreditOnceInPeriod(of: rent, now: now)
+  }
+
+  @Test("Undoing the delete of an earlier bill mark restores the chain")
+  func undoDeleteOfEarlierMarkKeepsChain() throws {
+    let rent = try addBill()
+    let now = calendar.date(2026, 6, 1, 12)
+    let (paid, skipped) = try chainedMarksBeforeStart(of: rent, now: now)
+
+    var slot = HistoryUndoSlot()
+    try slot.delete(paid, from: budget, in: context, now: now, calendar: calendar)
+    let restored = try #require(try slot.undo(in: context, now: now.addingTimeInterval(1)))
+    guard case .billPayment(let money) = restored else {
+      Issue.record("Expected a bill mark")
+      return
+    }
+    #expect(money.adjustmentCents == 10_000)
+    #expect(skipped.adjustmentCents == 20_000)
+
+    try expectFullCreditOnceInPeriod(of: rent, now: now)
+  }
+
+  @Test("Rechaining leaves other bills' marks and marks in a period alone")
+  func rechainStaysWithinBillAndBeforeStart() throws {
+    let rent = try addBill()
+    let phone = FixedBill(name: "Phone", amountCents: 4_500, dueDay: 12)
+    context.insert(phone)
+    budget.fixedBills.append(phone)
+    let early = calendar.date(2026, 5, 28)
+    let earlyPaid = try mark(rent, .paid(cents: 20_000), on: early)
+    let phoneSkipped = try mark(phone, .skipped, on: early)
+    let earlySkipped = try mark(rent, .skipped, on: early)
+    let inPeriod = try mark(rent, .skipped, on: calendar.date(2026, 6, 1))
+    // A value rechaining would change, as from a backup, to show it isn't touched.
+    inPeriod.adjustmentCents = 12_345
+    try context.save()
+
+    var slot = HistoryUndoSlot()
+    let now = calendar.date(2026, 6, 10, 12)
+    try slot.delete(earlyPaid, from: budget, in: context, now: now, calendar: calendar)
+    #expect(earlySkipped.adjustmentCents == 30_000)
+    #expect(phoneSkipped.adjustmentCents == 4_500)
+    #expect(inPeriod.adjustmentCents == 12_345)
+  }
+
+  @Test("The bill entry edit screenshot opens on a paid mark dated before the start")
+  func billEntryEditScreenshotSeed() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    let seedContainer = try RunwayModelContainer.make(inMemory: true)
+    let seeded = ModelContext(seedContainer)
+    let budget = try #require(
+      try ScreenshotScenario.historyBillEntryEdit.seed(into: seeded, now: now, calendar: calendar)
+    )
+    let paid = try #require(budget.billPayments.first { $0.paidCents > 0 })
+    #expect(paid.bill?.name == "Rent")
+    #expect(paid.date < budget.periodStart)
+    #expect(BillPaymentDraft(mark: paid).status == .paid)
   }
 
   @Test("The bill marks screenshot seeds paid, skipped, and cleared marks, changing no figures")

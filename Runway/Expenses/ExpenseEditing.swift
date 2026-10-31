@@ -153,10 +153,17 @@ struct HistoryUndoSlot {
     _ mark: BillPayment,
     from budget: Budget,
     in context: ModelContext,
-    now: Date
+    now: Date,
+    calendar: Calendar
   ) throws {
     pending = .billPayment(
-      try BillPaymentDeletion.delete(mark, from: budget, in: context, now: now)
+      try BillPaymentDeletion.delete(
+        mark,
+        from: budget,
+        in: context,
+        now: now,
+        calendar: calendar
+      )
     )
   }
 

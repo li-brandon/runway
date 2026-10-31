@@ -58,7 +58,8 @@ struct BillPaymentDraft {
     return calendar.startOfDay(for: min(max(date, range.lowerBound), range.upperBound))
   }
 
-  /// Applies the draft to `mark`, moving its adjustment by the change in what it gives back.
+  /// Applies the draft to `mark`, moving its adjustment by the change in what it gives back, and
+  /// rechains the bill's later marks. A deleted bill's mark has none it can be told apart from.
   /// Returns `false` and changes nothing when the amount is invalid.
   @discardableResult
   func update(
@@ -74,13 +75,16 @@ struct BillPaymentDraft {
     mark.paidCents = paid
     mark.adjustmentCents += mark.creditCents - previousCredit
     mark.date = savedDate(in: period, now: now, calendar: calendar)
+    if let bill = mark.bill {
+      mark.budget?.rechainMarks(of: bill, around: mark.date, calendar: calendar)
+    }
     return true
   }
 }
 
 /// A deleted bill mark that can be restored for five seconds, like `ExpenseDeletion`. Restoring
 /// creates it again with the same fields and exact date, and with its bill unless that was deleted
-/// meanwhile.
+/// meanwhile. Deleting and restoring both rechain the bill's other marks.
 struct BillPaymentDeletion {
   let isSkipped: Bool
   let isCleared: Bool
@@ -92,14 +96,17 @@ struct BillPaymentDeletion {
   let billID: PersistentIdentifier?
   let budget: Budget
   let expiresAt: Date
+  let calendar: Calendar
 
   /// Deletes and saves `mark`. On a save failure the caller rolls back.
   static func delete(
     _ mark: BillPayment,
     from budget: Budget,
     in context: ModelContext,
-    now: Date
+    now: Date,
+    calendar: Calendar
   ) throws -> BillPaymentDeletion {
+    let bill = mark.bill
     let deletion = BillPaymentDeletion(
       isSkipped: mark.isSkipped,
       isCleared: mark.isCleared,
@@ -108,11 +115,15 @@ struct BillPaymentDeletion {
       adjustmentCents: mark.adjustmentCents,
       sequence: mark.sequence,
       date: mark.date,
-      billID: mark.bill?.persistentModelID,
+      billID: bill?.persistentModelID,
       budget: budget,
-      expiresAt: now.addingTimeInterval(5)
+      expiresAt: now.addingTimeInterval(5),
+      calendar: calendar
     )
     budget.removeBillPayment(mark)
+    if let bill {
+      budget.rechainMarks(of: bill, around: deletion.date, calendar: calendar)
+    }
     try context.save()
     return deletion
   }
@@ -134,6 +145,9 @@ struct BillPaymentDeletion {
     budget.billPayments.append(mark)
     // Look the bill up again: it may have been deleted since.
     mark.bill = budget.fixedBills.first { $0.persistentModelID == billID }
+    if let bill = mark.bill {
+      budget.rechainMarks(of: bill, around: date, calendar: calendar)
+    }
     try context.save()
     return mark
   }

@@ -279,6 +279,25 @@ extension Budget {
     modelContext?.delete(mark)
   }
 
+  /// Sets the adjustments of `bill`'s marks around `date` as `setStatus` would have, each one the
+  /// change from the mark before it, so they add up to the latest mark's credit. Call after editing
+  /// or removing a mark. Covers the period containing `date`, or if `date` is before the budget's
+  /// start, every mark before it, as they could all land in one period if the start moves earlier.
+  func rechainMarks(of bill: FixedBill, around date: Date, calendar: Calendar) {
+    let engine = AllowanceEngine(calendar: calendar)
+    let period = engine.period(containing: date, of: BudgetSnapshot(self))
+    let isBeforeStart = date < period.start
+    let marks = billPayments.filter { mark in
+      guard mark.bill === bill else { return false }
+      return isBeforeStart ? mark.date < period.start : period.contains(mark.date)
+    }
+    var previousCredit = 0
+    for mark in marks.sorted(by: { $0.sequence < $1.sequence }) {
+      mark.adjustmentCents = mark.creditCents - previousCredit
+      previousCredit = mark.creditCents
+    }
+  }
+
   /// Offsets the amount edit for an already settled bill, from the edit day forward.
   func rebaseMark(
     of bill: FixedBill,

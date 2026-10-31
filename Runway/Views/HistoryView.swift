@@ -517,7 +517,7 @@ struct HistoryView: View {
     editingBillPayment = nil
     do {
       // Replaces any earlier deletion, which stays deleted without an undo.
-      try undoSlot.delete(mark, from: budget, in: modelContext, now: .now)
+      try undoSlot.delete(mark, from: budget, in: modelContext, now: .now, calendar: calendar)
     } catch {
       modelContext.rollback()
       errorMessage = error.localizedDescription
@@ -562,7 +562,7 @@ struct HistoryView: View {
     let today = calendar.startOfDay(for: now)
     switch screenshotScenario {
     case .historyPeriodSummary, .history500, .historyBeforeBudget, .historyBeforeBudgetBills,
-      .historyExtraMoney, .extraMoneyEditNegative:
+      .historyBillEntryEdit, .historyExtraMoney, .extraMoneyEditNegative:
       periodOffset = 1
     default:
       break
@@ -581,6 +581,11 @@ struct HistoryView: View {
       let negative = budget.extraMoney.first(where: { $0.amountCents < 0 })
     {
       edit(negative)
+    }
+    if screenshotScenario == .historyBillEntryEdit,
+      let paid = budget.billPayments.first(where: { $0.paidCents > 0 })
+    {
+      edit(paid)
     }
     let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
     if options.screenshotScrollTo == "categories" {
