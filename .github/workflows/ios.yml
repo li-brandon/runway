@@ -362,7 +362,13 @@ jobs:
           xcrun simctl ui "$SHOT_UDID" appearance light
           xcrun simctl ui "$SHOT_UDID" content_size large
           for SCENARIO in $SCENARIOS; do
-            capture "$SCENARIO" "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO.png"
+            case "$SCENARIO" in
+              # Scrolls twice so the row settles; give it longer than the default wait.
+              history-extra-money) WAIT=10 ;;
+              *) WAIT="" ;;
+            esac
+            CAPTURE_WAIT="$WAIT" capture "$SCENARIO" \
+              "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO.png"
           done
 
           # Largest accessibility text size. Each capture relaunches the app, so it picks this up.
