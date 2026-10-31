@@ -418,10 +418,13 @@ struct BudgetDraft: Equatable, Sendable {
   private static func normalizedDollarText(_ text: String) -> String? {
     guard text.filter({ $0 == "$" }).count == 1 else { return nil }
     var amount = text.filter { !$0.isWhitespace && $0 != "$" }
+    // A lone dollar sign has no amount yet, so it's empty rather than invalid.
+    guard !amount.isEmpty else { return "" }
     let isNegative = amount.hasPrefix("-")
     if isNegative {
       amount.removeFirst()
     }
+    let sign = isNegative ? "-" : ""
     let digits: ClosedRange<Character> = "0"..."9"
     var whole = amount[...]
     var fraction = ""
@@ -432,6 +435,10 @@ struct BudgetDraft: Equatable, Sendable {
         fraction = String(suffix)
       }
     }
+    // Cents with no whole dollars, like "$.50", have no groups to validate.
+    if whole.isEmpty && !fraction.isEmpty {
+      return sign + "." + fraction
+    }
     let groups = whole.split(omittingEmptySubsequences: false) { $0 == "," || $0 == "." }
     guard let first = groups.first,
       !first.isEmpty,
@@ -441,7 +448,6 @@ struct BudgetDraft: Equatable, Sendable {
         group.count == 3 && group.allSatisfy({ digits.contains($0) })
       })
     else { return nil }
-    let sign = isNegative ? "-" : ""
     let integer = groups.joined()
     if fraction.isEmpty {
       return sign + integer
