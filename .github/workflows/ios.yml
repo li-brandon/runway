@@ -46,6 +46,8 @@ jobs:
         # Fail safe: any error, or anything but a confirmed docs-only diff, means code=true.
         shell: bash {0}
         run: |
+          echo '::error::LIB-462 probe: simulated detection failure'
+          exit 1
           code=true
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$BASE_SHA" ] \
             && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
