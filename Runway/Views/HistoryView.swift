@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Past days and periods for the saved budget. Every figure comes from `HistoryEngine` on each
 /// render, so editing or deleting an expense or extra money updates later days, carryover, and
-/// Today.
+/// Today. Bill marks before the budget's start are listed too, and count toward nothing.
 struct HistoryView: View {
   let budget: Budget
   /// The time History treats as now; Today passes its own, fixed for screenshots.
@@ -28,6 +28,7 @@ struct HistoryView: View {
   @State private var periodOffset = 0
   @State private var editing: Expense?
   @State private var editingExtra: ExtraMoney?
+  @State private var editingBillPayment: BillPayment?
   @State private var editNow = Date.now
   /// Only the latest delete can be undone; see `HistoryUndoSlot`.
   @State private var undoSlot = HistoryUndoSlot()
@@ -79,7 +80,11 @@ struct HistoryView: View {
     // They follow the oldest period, so only its page lists them.
     var beforeBudget: [HistoryItem] = []
     if index == periods.count - 1 {
-      let items = expenses.map(HistoryItem.expense) + extras.map(HistoryItem.extraMoney)
+      // Latest first, so same-day marks of a bill keep a fixed order.
+      let marks = budget.billPayments.sorted { $0.sequence > $1.sequence }
+      var items = expenses.map(HistoryItem.expense)
+      items += extras.map(HistoryItem.extraMoney)
+      items += marks.map(HistoryItem.billPayment)
       beforeBudget = engine.beforeBudget(items, budget: BudgetSnapshot(budget)) { $0.date }
     }
     return HistoryPage(
@@ -156,6 +161,14 @@ struct HistoryView: View {
       ExtraMoneyEditView(
         extra: extra,
         period: editablePeriod(of: extra.date),
+        now: editNow,
+        onDelete: delete
+      )
+    }
+    .sheet(item: $editingBillPayment) { mark in
+      BillPaymentEditView(
+        mark: mark,
+        period: engine.beforeBudgetPeriod(budget: BudgetSnapshot(budget)),
         now: editNow,
         onDelete: delete
       )
@@ -326,7 +339,29 @@ struct HistoryView: View {
       expenseRow(expense, showsDay: true)
     case .extraMoney(let extra):
       extraMoneyRow(extra)
+    case .billPayment(let mark):
+      billPaymentRow(mark)
     }
+  }
+
+  private func billPaymentRow(_ mark: BillPayment) -> some View {
+    Button {
+      edit(mark)
+    } label: {
+      HistoryBillPaymentRow(mark: mark)
+    }
+    // Plain so the row keeps primary and secondary text rather than the accent tint.
+    .buttonStyle(.plain)
+    .swipeActions(edge: .trailing) {
+      Button("Delete", systemImage: "trash", role: .destructive) {
+        delete(mark)
+      }
+      Button("Edit", systemImage: "pencil") {
+        edit(mark)
+      }
+      .tint(.blue)
+    }
+    .accessibilityHint("Opens the bill entry to edit or delete it.")
   }
 
   private func extraMoneyRow(_ extra: ExtraMoney) -> some View {
@@ -407,6 +442,9 @@ struct HistoryView: View {
     case .extraMoney:
       title = "Extra money deleted"
       hint = "Restores the extra money you just deleted."
+    case .billPayment:
+      title = "Bill entry deleted"
+      hint = "Restores the bill entry you just deleted."
     }
     let stacked = AnyLayout(VStackLayout(spacing: 8))
     let inline = AnyLayout(HStackLayout(spacing: 16))
@@ -470,6 +508,22 @@ struct HistoryView: View {
     }
   }
 
+  private func edit(_ mark: BillPayment) {
+    editNow = screenshotScenario?.todayDate ?? .now
+    editingBillPayment = mark
+  }
+
+  private func delete(_ mark: BillPayment) {
+    editingBillPayment = nil
+    do {
+      // Replaces any earlier deletion, which stays deleted without an undo.
+      try undoSlot.delete(mark, from: budget, in: modelContext, now: .now, calendar: calendar)
+    } catch {
+      modelContext.rollback()
+      errorMessage = error.localizedDescription
+    }
+  }
+
   private func edit(_ expense: Expense) {
     editNow = screenshotScenario?.todayDate ?? .now
     editing = expense
@@ -507,8 +561,8 @@ struct HistoryView: View {
     guard let screenshotScenario, screenshotScenario.isHistory else { return }
     let today = calendar.startOfDay(for: now)
     switch screenshotScenario {
-    case .historyPeriodSummary, .history500, .historyBeforeBudget, .historyExtraMoney,
-      .extraMoneyEditNegative:
+    case .historyPeriodSummary, .history500, .historyBeforeBudget, .historyBeforeBudgetBills,
+      .historyBillEntryEdit, .historyExtraMoney, .extraMoneyEditNegative:
       periodOffset = 1
     default:
       break
@@ -528,6 +582,11 @@ struct HistoryView: View {
     {
       edit(negative)
     }
+    if screenshotScenario == .historyBillEntryEdit,
+      let paid = budget.billPayments.first(where: { $0.paidCents > 0 })
+    {
+      edit(paid)
+    }
     let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
     if options.screenshotScrollTo == "categories" {
       proxy.scrollTo("categories", anchor: .top)
@@ -541,7 +600,9 @@ struct HistoryView: View {
       let extra = page.extraMoneyByDay.values.first?.first
     {
       await scrollAndSettle(proxy, to: extra.persistentModelID)
-    } else if screenshotScenario == .historyBeforeBudget {
+    } else if screenshotScenario == .historyBeforeBudget
+      || screenshotScenario == .historyBeforeBudgetBills
+    {
       await scrollAndSettle(proxy, to: Self.beforeBudgetID)
     } else if screenshotScenario == .historyExtraMoney,
       let day = page.extraMoneyByDay.keys.first
@@ -569,8 +630,8 @@ struct HistoryView: View {
 }
 
 /// One render of History: every period newest first, the selected one, its expenses and extra
-/// money by day, and, on the oldest period's page, the expenses and extra money before the
-/// budget's start.
+/// money by day, and, on the oldest period's page, the expenses, extra money, and bill marks before
+/// the budget's start.
 struct HistoryPage {
   let periods: [HistoryPeriod<PersistentIdentifier?>]
   let index: Int
@@ -582,15 +643,18 @@ struct HistoryPage {
   var selected: HistoryPeriod<PersistentIdentifier?> { periods[index] }
 }
 
-/// An expense or extra money: a row of the Before budget section, or what Undo restored.
+/// An expense, extra money, or a bill mark: a row of the Before budget section, or what Undo
+/// restored.
 enum HistoryItem: Identifiable {
   case expense(Expense)
   case extraMoney(ExtraMoney)
+  case billPayment(BillPayment)
 
   var id: PersistentIdentifier {
     switch self {
     case .expense(let expense): expense.persistentModelID
     case .extraMoney(let extra): extra.persistentModelID
+    case .billPayment(let mark): mark.persistentModelID
     }
   }
 
@@ -598,13 +662,16 @@ enum HistoryItem: Identifiable {
     switch self {
     case .expense(let expense): expense.date
     case .extraMoney(let extra): extra.date
+    case .billPayment(let mark): mark.date
     }
   }
 
+  /// A bill mark has no note of its own, so this is its bill's name, if the bill still exists.
   var note: String {
     switch self {
     case .expense(let expense): expense.note
     case .extraMoney(let extra): extra.note
+    case .billPayment(let mark): mark.bill?.name ?? ""
     }
   }
 
@@ -612,6 +679,7 @@ enum HistoryItem: Identifiable {
     switch self {
     case .expense(let expense): expense.amountCents
     case .extraMoney(let extra): extra.amountCents
+    case .billPayment(let mark): mark.paidCents
     }
   }
 }
@@ -755,5 +823,65 @@ struct HistoryExtraMoneyRow: View {
     Text(Money.format(cents: extra.amountCents))
       .fontWeight(.semibold)
       .minimumScaleFactor(TextScaling.minimumFactor)
+  }
+}
+
+/// A bill mark in History: the bill's name where an expense shows its category, what was paid, the
+/// mark's status, and its day. It has no time of day, so only the date shows.
+struct HistoryBillPaymentRow: View {
+  let mark: BillPayment
+
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      if dynamicTypeSize.isAccessibilitySize {
+        title
+        amount
+      } else {
+        HStack(alignment: .firstTextBaseline) {
+          title
+          Spacer(minLength: 12)
+          amount
+        }
+      }
+      Text(statusText)
+        .foregroundStyle(.secondary)
+      Text(mark.date, format: .dateTime.month(.abbreviated).day().year())
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .foregroundStyle(.primary)
+    .fixedSize(horizontal: false, vertical: true)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .contentShape(Rectangle())
+    .accessibilityElement(children: .combine)
+  }
+
+  private var isPaid: Bool { !mark.isCleared && !mark.isSkipped }
+
+  private var title: some View {
+    Label(mark.bill?.name ?? "Deleted bill", systemImage: symbol)
+  }
+
+  @ViewBuilder
+  private var amount: some View {
+    if isPaid {
+      Text(Money.format(cents: mark.paidCents))
+        .fontWeight(.semibold)
+        .minimumScaleFactor(TextScaling.minimumFactor)
+    }
+  }
+
+  private var symbol: String {
+    if mark.isCleared { return "circle" }
+    return mark.isSkipped ? "forward.fill" : "checkmark.circle.fill"
+  }
+
+  private var statusText: String {
+    if mark.isCleared { return "Marked unpaid" }
+    if mark.isSkipped { return "Skipped" }
+    guard mark.paidCents != mark.plannedCents else { return "Paid" }
+    return "Paid, \(Money.format(cents: mark.plannedCents)) planned"
   }
 }

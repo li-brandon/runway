@@ -20,7 +20,7 @@ import Foundation
 ///   current period counts expenses through the end of today; later-dated ones are ignored until
 ///   their day arrives, as on Today. Expenses before the budget's start belong to no period; see
 ///   `beforeBudget`, which keeps them reachable without counting them toward anything. The same
-///   goes for extra money dated before the start.
+///   goes for extra money and bill marks dated before the start.
 /// - **Carryover** chains like `AllowanceEngine.carryInCents`: a completed period's carry-out is
 ///   its remainder if carryover is on at the next boundary, otherwise 0. The current period has no
 ///   carry-out yet.
@@ -181,6 +181,13 @@ struct HistoryEngine: Sendable {
   func editablePeriod(of date: Date, budget: BudgetSnapshot) -> BudgetPeriod {
     let period = AllowanceEngine(calendar: calendar).period(containing: date, of: budget)
     return date < period.start ? .beforeBudget : period
+  }
+
+  /// The limits on editing the date of a bill mark before the budget's first period: any date
+  /// before its start. Moving a mark into a period would change that period's status and figures.
+  func beforeBudgetPeriod(budget: BudgetSnapshot) -> BudgetPeriod {
+    let anchor = AllowanceEngine(calendar: calendar).period(at: 0, of: budget).start
+    return BudgetPeriod(index: -1, start: .distantPast, end: anchor)
   }
 
   /// The last local day of `period`, for display.

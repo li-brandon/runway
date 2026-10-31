@@ -127,8 +127,11 @@ Expenses dated before the start of the budget's first period appear in a **Befor
 below the oldest period, newest first, and edit, delete, and undo like any other expense. They
 count toward no period's totals or carryover. Their date can be any day through today, and choosing
 one in the budget moves the expense into that period. Extra money dated before the start is listed
-there too, marked **Extra money**, and follows the same rules, except that deleting it has no Undo,
-as on This Period. Saving it without choosing a new date keeps its date.
+there too, marked **Extra money**, and follows the same rules. Saving it without choosing a new date
+keeps its date. Bill marks (paid, skipped, or unpaid again) dated before the start are listed under
+their bill's name. Tap or swipe one to change its status, paid amount, or date, or to delete it with
+Undo. They count toward no period's totals or carryover, and their date stays before the start, so
+an edit can't move one into a period.
 
 Nothing per day is stored. `HistoryEngine` (`Runway/Engine`) derives every figure from the budget
 and expenses with `AllowanceEngine`'s rules, so an edit or delete updates later days, carryover,
@@ -159,7 +162,9 @@ History scenarios use the same date with two biweekly periods of sample spending
 `history-list` (the current period, scrolled to its days), `history-period-summary` (the previous
 period's summary, carryover, and categories), and `history-edit` (the edit sheet for yesterday's
 latest expense), and `history-before-budget` (the oldest period's page, scrolled to expenses and
-extra money dated before the budget's start), `history-extra-money` (the previous period, scrolled
+extra money dated before the budget's start), `history-before-budget-bills` (the same page, scrolled
+to bill marks dated before the start), `history-bill-entry-edit` (the bill entry edit sheet on a
+paid mark dated before the start), `history-extra-money` (the previous period, scrolled
 to a day with an extra money row among its expenses), and `extra-money-edit-negative` (the extra
 money edit sheet on a negative imported amount). `-RunwayScreenshotScrollTo categories` scrolls History to its category
 totals, `before-budget` scrolls it to the end of its Before budget section, `extra-money-row`
@@ -258,12 +263,14 @@ macOS runner. It:
    categories and category-picker use 440, quick logging uses 432, the four Today scenarios
    use 433, the three History scenarios use 434, and the privacy scenarios use 437, except the
    import and reset confirms, which use 468. `history-before-budget` uses 463b,
-   `history-extra-money` and `extra-money-edit-negative` use 475, and
+   `history-before-budget-bills` and `history-bill-entry-edit` use 476, `history-extra-money` and
+   `extra-money-edit-negative` use 475, and
    `today-large-amount` and `extra-money` use 469. A failed
    capture fails the job. Every scenario is captured at default and largest accessibility text sizes. Setup
    scenarios also get a second accessibility capture scrolled to the amount fields, and
-   `history-period-summary` one scrolled to its categories, `history-before-budget` one scrolled
-   to the end of its Before budget section, `history-extra-money` one scrolled to its extra money
+   `history-period-summary` one scrolled to its categories, `history-before-budget` and
+   `history-before-budget-bills` one scrolled to the end of their Before budget section,
+   `history-extra-money` one scrolled to its extra money
    row, and `extra-money-edit-negative` one scrolled to its Delete button.
    `today-normal`, `today-over`, and `history-list` also get dark captures at both sizes, named
    `<ticket>-<scenario>-dark.png` and `<ticket>-<scenario>-ax5-dark.png`. The capture step

@@ -99,11 +99,13 @@ struct ExpenseDeletion {
 enum HistoryDeletion {
   case expense(ExpenseDeletion)
   case extraMoney(ExtraMoneyDeletion)
+  case billPayment(BillPaymentDeletion)
 
   var expiresAt: Date {
     switch self {
     case .expense(let deletion): deletion.expiresAt
     case .extraMoney(let deletion): deletion.expiresAt
+    case .billPayment(let deletion): deletion.expiresAt
     }
   }
 
@@ -114,13 +116,15 @@ enum HistoryDeletion {
       return try deletion.undo(in: context, now: now).map(HistoryItem.expense)
     case .extraMoney(let deletion):
       return try deletion.undo(in: context, now: now).map(HistoryItem.extraMoney)
+    case .billPayment(let deletion):
+      return try deletion.undo(in: context, now: now).map(HistoryItem.billPayment)
     }
   }
 }
 
-/// History's single undo. Only the most recent delete, of an expense or extra money, can be
-/// undone: a new delete replaces the pending one, which stays deleted (it was saved when deleted)
-/// and loses its undo.
+/// History's single undo. Only the most recent delete, of an expense, extra money, or a bill mark,
+/// can be undone: a new delete replaces the pending one, which stays deleted (it was saved when
+/// deleted) and loses its undo.
 struct HistoryUndoSlot {
   private(set) var pending: HistoryDeletion?
 
@@ -140,6 +144,26 @@ struct HistoryUndoSlot {
   ) throws {
     pending = .extraMoney(
       try ExtraMoneyDeletion.delete(extra, from: budget, in: context, now: now)
+    )
+  }
+
+  /// Deletes and saves `mark`, making it the only one Undo restores. On a save failure the
+  /// pending deletion is kept and the caller rolls back.
+  mutating func delete(
+    _ mark: BillPayment,
+    from budget: Budget,
+    in context: ModelContext,
+    now: Date,
+    calendar: Calendar
+  ) throws {
+    pending = .billPayment(
+      try BillPaymentDeletion.delete(
+        mark,
+        from: budget,
+        in: context,
+        now: now,
+        calendar: calendar
+      )
     )
   }
 

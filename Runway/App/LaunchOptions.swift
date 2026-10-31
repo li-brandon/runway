@@ -104,6 +104,10 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case history500 = "history-500"
   /// The oldest period's page, scrolled to the expenses and money dated before the budget's start.
   case historyBeforeBudget = "history-before-budget"
+  /// The oldest period's page, scrolled to bill marks dated before the budget's start.
+  case historyBeforeBudgetBills = "history-before-budget-bills"
+  /// The bill entry edit sheet open on a paid mark dated before the budget's start.
+  case historyBillEntryEdit = "history-bill-entry-edit"
   /// The previous period, scrolled to a day with an extra money row among its expenses.
   case historyExtraMoney = "history-extra-money"
   /// The extra money edit sheet open on a negative imported amount, showing the sign control.
@@ -176,7 +180,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   var isHistory: Bool {
     switch self {
     case .historyList, .historyPeriodSummary, .historyEdit, .history500, .historyBeforeBudget,
-      .historyExtraMoney, .extraMoneyEditNegative:
+      .historyBeforeBudgetBills, .historyBillEntryEdit, .historyExtraMoney,
+      .extraMoneyEditNegative:
       true
     default:
       false
@@ -189,7 +194,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       .extraMoney, .spendingDay, .spendingWeek, .spendingMonth, .spendingMonthRolling:
       Self.fixedToday
     case .historyList, .historyPeriodSummary, .historyEdit, .history500, .historyBeforeBudget,
-      .historyExtraMoney, .extraMoneyEditNegative:
+      .historyBeforeBudgetBills, .historyBillEntryEdit, .historyExtraMoney,
+      .extraMoneyEditNegative:
       Self.fixedToday
     default:
       nil
@@ -265,7 +271,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       budget = Budget(periodStart: periodStart, spendablePerPeriodCents: 0)
       bills = []
     case .historyList, .historyPeriodSummary, .historyEdit, .history500, .historyBeforeBudget,
-      .historyExtraMoney, .extraMoneyEditNegative:
+      .historyBeforeBudgetBills, .historyBillEntryEdit, .historyExtraMoney,
+      .extraMoneyEditNegative:
       return try seedHistory(into: context, now: now, calendar: calendar)
     case .setupWarning:
       // 1,200 - (1,100 + 250) - 100 = -250 available.
@@ -381,9 +388,12 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   /// completed one starting 17 days before today, with some days over, and the current one
   /// through this morning. Includes a refund. `history-500` instead spreads 500 expenses over the
   /// completed period, about 36 a day from 7:00 every 20 minutes, and none in the current one.
-  /// `history-before-budget` adds three expenses and a gift in the days before the budget's start.
-  /// `history-extra-money` adds a gift, and `extra-money-edit-negative` a negative amount as from a
-  /// backup, on the completed period's last day.
+  /// `history-before-budget` adds three expenses and a gift in the days before the budget's start,
+  /// and `history-before-budget-bills` two bills, covered by more spendable so $1,100 stays
+  /// available, with a paid, a skipped, and a cleared mark before it (the last for a deleted bill).
+  /// `history-bill-entry-edit` seeds the same. `history-extra-money` adds a gift, and
+  /// `extra-money-edit-negative` a negative amount as from a backup, on the completed period's last
+  /// day.
   private func seedHistory(
     into context: ModelContext,
     now: Date,
@@ -391,10 +401,11 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   ) throws -> Budget {
     let today = calendar.startOfDay(for: now)
     let start = calendar.date(byAdding: .day, value: -17, to: today) ?? today
+    let seedsBillMarks = self == .historyBeforeBudgetBills || self == .historyBillEntryEdit
     let budget = Budget(
       periodLength: .biweekly,
       periodStart: start,
-      spendablePerPeriodCents: 110_000
+      spendablePerPeriodCents: seedsBillMarks ? 224_500 : 110_000
     )
     context.insert(budget)
     let service = CategoryService(context: context)
@@ -462,6 +473,37 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
         now: calendar.date(byAdding: .day, value: -3, to: start) ?? start,
         calendar: calendar
       )
+    }
+    if seedsBillMarks {
+      let rent = FixedBill(name: "Rent", amountCents: 110_000, dueDay: 1)
+      let phone = FixedBill(name: "Phone", amountCents: 4_500, dueDay: 12)
+      for bill in [rent, phone] {
+        context.insert(bill)
+        budget.fixedBills.append(bill)
+      }
+      budget.setStatus(
+        .paid(cents: 105_000),
+        of: rent,
+        now: calendar.date(byAdding: .day, value: -3, to: start) ?? start,
+        calendar: calendar
+      )
+      budget.setStatus(
+        .skipped,
+        of: phone,
+        now: calendar.date(byAdding: .day, value: -5, to: start) ?? start,
+        calendar: calendar
+      )
+      let cleared = BillPayment(
+        isSkipped: false,
+        isCleared: true,
+        plannedCents: 6_000,
+        paidCents: 0,
+        adjustmentCents: 0,
+        sequence: 3,
+        date: calendar.date(byAdding: .day, value: -7, to: start) ?? start
+      )
+      context.insert(cleared)
+      budget.billPayments.append(cleared)
     }
     let completedLastDay = calendar.date(byAdding: .day, value: 13, to: start) ?? start
     if self == .historyExtraMoney {

@@ -198,7 +198,7 @@ jobs:
           SCENARIOS="setup-empty setup-filled setup-warning categories category-picker"
           SCENARIOS="$SCENARIOS quick-log-empty quick-log-filled quick-log-note today-undo"
           SCENARIOS="$SCENARIOS today-normal today-near today-over today-zero today-no-budget"
-          SCENARIOS="$SCENARIOS history-list history-period-summary history-edit history-before-budget history-extra-money extra-money-edit-negative history-500"
+          SCENARIOS="$SCENARIOS history-list history-period-summary history-edit history-before-budget history-extra-money extra-money-edit-negative history-before-budget-bills history-bill-entry-edit history-500"
           SCENARIOS="$SCENARIOS budget-change-amounts budget-change-period budget-change-carryover budget-change-add-money budget-change-bills"
           SCENARIOS="$SCENARIOS spending-day spending-week spending-month spending-month-rolling"
           SCENARIOS="$SCENARIOS privacy-settings privacy-locked privacy-import-confirm privacy-reset-confirm"
@@ -213,6 +213,7 @@ jobs:
               history-list|history-period-summary|history-edit) echo 434 ;;
               history-500) echo 463 ;;
               history-before-budget) echo 463b ;;
+              history-before-budget-bills|history-bill-entry-edit) echo 476 ;;
               history-extra-money|extra-money-edit-negative) echo 475 ;;
               budget-change-*) echo 435 ;;
               spending-*) echo 436 ;;
@@ -364,7 +365,7 @@ jobs:
           for SCENARIO in $SCENARIOS; do
             case "$SCENARIO" in
               # Scrolls twice so the row settles; give it longer than the default wait.
-              history-extra-money) WAIT=10 ;;
+              history-extra-money|history-before-budget-bills) WAIT=10 ;;
               *) WAIT="" ;;
             esac
             CAPTURE_WAIT="$WAIT" capture "$SCENARIO" \
@@ -384,7 +385,7 @@ jobs:
                 capture "$SCENARIO" "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO-ax5-categories.png" \
                   -RunwayScreenshotScrollTo categories
                 ;;
-              history-before-budget)
+              history-before-budget|history-before-budget-bills)
                 # Scrolls twice so the footer settles; give it longer than the default wait.
                 CAPTURE_WAIT=10 capture "$SCENARIO" \
                   "screenshots/$(ticket_for "$SCENARIO")-$SCENARIO-ax5-before-budget.png" \
