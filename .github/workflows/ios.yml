@@ -107,7 +107,9 @@ jobs:
           xcrun swift-format lint --strict --recursive Runway RunwayTests
 
       - name: Lint (scale factor)
-        run: sh scripts/lint-scale-factor.sh
+        run: |
+          sh scripts/test-lint-scale-factor.sh
+          sh scripts/lint-scale-factor.sh
 
       - name: Pick simulator
         run: |
