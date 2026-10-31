@@ -1,15 +1,16 @@
 import Foundation
+import SwiftData
 
-/// The form state for editing saved extra money. Amounts follow `AddMoneyView`: above zero only.
-/// Money that came in negative from a backup stays negative, since the form has no sign to show.
+/// The form state for editing saved extra money. The amount is a magnitude above zero, and
+/// `isNegative` is its sign, so money that came in negative from a backup can stay or be flipped.
 struct ExtraMoneyDraft {
   var amountText: String
   var note: String
   var date: Date
+  var isNegative: Bool
   var locale: Locale = .autoupdatingCurrent
 
   private let originalDate: Date
-  private let isNegative: Bool
 
   init(extra: ExtraMoney) {
     amountText = BudgetDraft.text(fromCents: abs(extra.amountCents))
@@ -50,5 +51,46 @@ struct ExtraMoneyDraft {
     extra.note = note.trimmingCharacters(in: .whitespacesAndNewlines)
     extra.date = savedDate(in: period, now: now, calendar: calendar)
     return true
+  }
+}
+
+/// Deleted extra money that can be restored for five seconds, like `ExpenseDeletion`. Restoring
+/// creates it again with the same amount, sign, note, and exact date.
+struct ExtraMoneyDeletion {
+  let amountCents: Int
+  let note: String
+  let date: Date
+  let budget: Budget
+  let expiresAt: Date
+
+  /// Deletes and saves `extra`. On a save failure the caller rolls back.
+  static func delete(
+    _ extra: ExtraMoney,
+    from budget: Budget,
+    in context: ModelContext,
+    now: Date
+  ) throws -> ExtraMoneyDeletion {
+    let deletion = ExtraMoneyDeletion(
+      amountCents: extra.amountCents,
+      note: extra.note,
+      date: extra.date,
+      budget: budget,
+      expiresAt: now.addingTimeInterval(5)
+    )
+    budget.removeExtraMoney(extra)
+    try context.save()
+    return deletion
+  }
+
+  /// Recreates and saves the money, or returns `nil` once the undo has expired. Not through
+  /// `Budget.addExtraMoney`, which would move an imported date to local midnight.
+  @discardableResult
+  func undo(in context: ModelContext, now: Date) throws -> ExtraMoney? {
+    guard now < expiresAt else { return nil }
+    let extra = ExtraMoney(amountCents: amountCents, note: note, date: date)
+    context.insert(extra)
+    budget.extraMoney.append(extra)
+    try context.save()
+    return extra
   }
 }

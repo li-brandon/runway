@@ -95,21 +95,58 @@ struct ExpenseDeletion {
   }
 }
 
-/// History's single undo. Only the most recent delete can be undone: a new delete replaces the
-/// pending one, which stays deleted (it was saved when deleted) and loses its undo.
-struct ExpenseUndoSlot {
-  private(set) var pending: ExpenseDeletion?
+/// A delete that History can still undo.
+enum HistoryDeletion {
+  case expense(ExpenseDeletion)
+  case extraMoney(ExtraMoneyDeletion)
+
+  var expiresAt: Date {
+    switch self {
+    case .expense(let deletion): deletion.expiresAt
+    case .extraMoney(let deletion): deletion.expiresAt
+    }
+  }
+
+  /// Recreates and saves the deleted item, or returns `nil` once the undo has expired.
+  func undo(in context: ModelContext, now: Date) throws -> HistoryItem? {
+    switch self {
+    case .expense(let deletion):
+      return try deletion.undo(in: context, now: now).map(HistoryItem.expense)
+    case .extraMoney(let deletion):
+      return try deletion.undo(in: context, now: now).map(HistoryItem.extraMoney)
+    }
+  }
+}
+
+/// History's single undo. Only the most recent delete, of an expense or extra money, can be
+/// undone: a new delete replaces the pending one, which stays deleted (it was saved when deleted)
+/// and loses its undo.
+struct HistoryUndoSlot {
+  private(set) var pending: HistoryDeletion?
 
   /// Deletes and saves `expense`, making it the only one Undo restores. On a save failure the
   /// pending deletion is kept and the caller rolls back.
   mutating func delete(_ expense: Expense, in context: ModelContext, now: Date) throws {
-    pending = try ExpenseDeletion.delete(expense, in: context, now: now)
+    pending = .expense(try ExpenseDeletion.delete(expense, in: context, now: now))
+  }
+
+  /// Deletes and saves `extra`, making it the only one Undo restores. On a save failure the
+  /// pending deletion is kept and the caller rolls back.
+  mutating func delete(
+    _ extra: ExtraMoney,
+    from budget: Budget,
+    in context: ModelContext,
+    now: Date
+  ) throws {
+    pending = .extraMoney(
+      try ExtraMoneyDeletion.delete(extra, from: budget, in: context, now: now)
+    )
   }
 
   /// Restores the latest deletion and empties the slot. Returns `nil`, and empties the slot, when
   /// there is nothing to undo or it has expired. On a save failure the slot is kept.
   @discardableResult
-  mutating func undo(in context: ModelContext, now: Date) throws -> Expense? {
+  mutating func undo(in context: ModelContext, now: Date) throws -> HistoryItem? {
     guard let deletion = pending else { return nil }
     let restored = try deletion.undo(in: context, now: now)
     pending = nil

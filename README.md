@@ -159,8 +159,12 @@ History scenarios use the same date with two biweekly periods of sample spending
 `history-list` (the current period, scrolled to its days), `history-period-summary` (the previous
 period's summary, carryover, and categories), and `history-edit` (the edit sheet for yesterday's
 latest expense), and `history-before-budget` (the oldest period's page, scrolled to expenses and
-extra money dated before the budget's start). `-RunwayScreenshotScrollTo categories` scrolls History to its category
-totals, `before-budget` scrolls it to the end of its Before budget section, `today` scrolls Today
+extra money dated before the budget's start), `history-extra-money` (the previous period, scrolled
+to a day with an extra money row among its expenses), and `extra-money-edit-negative` (the extra
+money edit sheet on a negative imported amount). `-RunwayScreenshotScrollTo categories` scrolls History to its category
+totals, `before-budget` scrolls it to the end of its Before budget section, `extra-money-row`
+scrolls it to an extra money row, `extra-money-delete` scrolls the extra money edit sheet to its
+Delete button, `today` scrolls Today
 to what's left to spend, `bills` scrolls This Period to its bills, and `extras` scrolls it to the
 end of its last extra money row.
 Privacy scenarios: `privacy-settings` (Privacy & Data with the lock on), `privacy-locked` (the lock
@@ -253,12 +257,14 @@ macOS runner. It:
    uploads `screenshots/<ticket>-<scenario>.png` as the `screenshots` artifact: setup uses 430,
    categories and category-picker use 440, quick logging uses 432, the four Today scenarios
    use 433, the three History scenarios use 434, and the privacy scenarios use 437, except the
-   import and reset confirms, which use 468. `history-before-budget` uses 463b, and
+   import and reset confirms, which use 468. `history-before-budget` uses 463b,
+   `history-extra-money` and `extra-money-edit-negative` use 475, and
    `today-large-amount` and `extra-money` use 469. A failed
    capture fails the job. Every scenario is captured at default and largest accessibility text sizes. Setup
    scenarios also get a second accessibility capture scrolled to the amount fields, and
-   `history-period-summary` one scrolled to its categories, and `history-before-budget` one scrolled
-   to the end of its Before budget section.
+   `history-period-summary` one scrolled to its categories, `history-before-budget` one scrolled
+   to the end of its Before budget section, `history-extra-money` one scrolled to its extra money
+   row, and `extra-money-edit-negative` one scrolled to its Delete button.
    `today-normal`, `today-over`, and `history-list` also get dark captures at both sizes, named
    `<ticket>-<scenario>-dark.png` and `<ticket>-<scenario>-ax5-dark.png`. The capture step
    restores light appearance and default text size even on failure.
@@ -283,8 +289,8 @@ device only when you share an export yourself. Exported files aren't encrypted.
 - **Export:** every record as versioned JSON, and expenses as CSV, through the share sheet. JSON
   dates are seconds since 2001-01-01 UTC, which keeps them exact.
 - **Import:** replaces all data with a JSON export, after a confirmation. The whole file is checked
-  first, and any failure leaves your data untouched. Refunds, and derived amounts that can
-  legitimately go below zero, may be negative. All other amounts may not.
+  first, and any failure leaves your data untouched. Refunds, removed extra money, and derived
+  amounts that can legitimately go below zero, may be negative. All other amounts may not.
 - **Reset:** after a confirmation, erases everything and restores the default categories. The app
   lock setting stays as it is.
 
