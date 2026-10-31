@@ -16,7 +16,12 @@ struct ExpenseDraftTests {
       #expect(draft.amountCents == nil)
       #expect(draft.validationMessage != nil)
     }
-    for (text, cents) in [("$1,234.50", 123_450), (".01", 1), ("12", 1_200)] {
+    for text in ["$", " $ "] {
+      draft.amountText = text
+      #expect(draft.amountCents == nil)
+      #expect(draft.validationMessage == "Enter an amount.")
+    }
+    for (text, cents) in [("$1,234.50", 123_450), (".01", 1), ("12", 1_200), ("$.50", 50)] {
       draft.amountText = text
       #expect(draft.amountCents == cents)
       #expect(draft.validationMessage == nil)

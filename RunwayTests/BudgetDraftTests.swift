@@ -42,11 +42,11 @@ struct BudgetDraftTests {
     arguments: zip(
       [
         "12.34", "$1,234.5", "$2,400.50", "2400.50", " 7 ", ".5", "5.", "0", "0.07",
-        "10000000", "$ 2,400.00", "2400.5", "$2,400",
+        "10000000", "$ 2,400.00", "2400.5", "$2,400", ".50",
       ],
       [
         1_234, 123_450, 240_050, 240_050, 700, 50, 500, 0, 7, 1_000_000_000, 240_000,
-        240_050, 240_000,
+        240_050, 240_000, 50,
       ]
     )
   )
@@ -67,7 +67,10 @@ struct BudgetDraftTests {
     #expect(BudgetDraft.parseAmount(text, locale: locale) == .failure(.invalid))
   }
 
-  @Test("Rejects negative amounts", arguments: ["-5", "-$5", "$-0.01", "- 12.34"])
+  @Test(
+    "Rejects negative amounts",
+    arguments: ["-5", "-$5", "$-0.01", "- 12.34", "-$.50", "$-.50", "-.50"]
+  )
   func rejectsNegative(text: String) {
     #expect(BudgetDraft.parseAmount(text, locale: locale) == .failure(.negative))
   }
@@ -100,10 +103,32 @@ struct BudgetDraftTests {
   }
 
   @Test(
+    "Dollar text accepts cents with no whole dollars",
+    arguments: zip(
+      ["$.50", "$ .50", " $.5 ", "$.05", "$,50"],
+      [50, 50, 50, 5, 50]
+    )
+  )
+  func parsesDollarFractions(text: String, cents: Int) {
+    for identifier in ["de_DE", "en_US"] {
+      let locale = Locale(identifier: identifier)
+      #expect(BudgetDraft.parseAmount(text, locale: locale) == .cents(cents))
+    }
+  }
+
+  @Test("A lone dollar sign is empty", arguments: ["$", " $ ", "$  ", "  $"])
+  func parsesLoneDollarSignAsEmpty(text: String) {
+    for identifier in ["de_DE", "en_US"] {
+      let locale = Locale(identifier: identifier)
+      #expect(BudgetDraft.parseAmount(text, locale: locale) == .empty)
+    }
+  }
+
+  @Test(
     "Rejects malformed dollar text",
     arguments: [
-      "$", "$1,2,3", "$12,34,5", "$1.23.45,6", "$1,234,", "$1,,234",
-      "$1.234,5.6", "$$12", "$12a", "$١٢", "$.", "$1,234x",
+      "$1,2,3", "$12,34,5", "$1.23.45,6", "$1,234,", "$1,,234", "$1.234,5.6", "$$12", "$12a",
+      "$١٢", "$.", "$1,234x", "$$", "-$", "$-", "$.123", "$,234.50", "$.,50", "$.5a",
     ]
   )
   func rejectsMalformedDollarText(text: String) {
@@ -147,8 +172,8 @@ struct BudgetDraftTests {
   @Test(
     "Formats valid amounts as currency for display",
     arguments: zip(
-      ["2400", "45.5", "$1,234.56", "0"],
-      ["$2,400", "$45.50", "$1,234.56", "$0"]
+      ["2400", "45.5", "$1,234.56", "0", "$.50"],
+      ["$2,400", "$45.50", "$1,234.56", "$0", "$0.50"]
     )
   )
   func formatsDisplayText(text: String, displayText: String) {
@@ -170,7 +195,7 @@ struct BudgetDraftTests {
     }
   }
 
-  @Test("Leaves empty or invalid text alone", arguments: ["", "  ", "abc", "-5", "12.345"])
+  @Test("Leaves empty or invalid text alone", arguments: ["", "  ", "$", "abc", "-5", "12.345"])
   func displayTextKeepsInvalid(text: String) {
     #expect(BudgetDraft.displayText(for: text, locale: locale) == text)
   }
@@ -205,6 +230,32 @@ struct BudgetDraftTests {
     #expect(draft.issues == [.billName(id): .required])
     draft.bills[0].name = "Gym"
     #expect(draft.canSave)
+  }
+
+  @Test("A lone dollar sign shows Required on required amounts", arguments: ["$", " $ "])
+  func loneDollarSignIsRequired(text: String) {
+    var draft = makeDraft()
+    draft.spendableText = text
+    #expect(draft.issues == [.spendable: .required])
+    #expect(draft.issues[.spendable]?.message == "Required")
+    #expect(!draft.canSave)
+
+    draft.spendableText = "500"
+    draft.bills = [bill("Gym", text)]
+    let id = draft.bills[0].id
+    #expect(draft.issues == [.billAmount(id): .required])
+    #expect(draft.issues[.billAmount(id)]?.message == "Required")
+  }
+
+  @Test("A lone dollar sign leaves optional amounts empty", arguments: ["$", " $ "])
+  func loneDollarSignInOptionalAmounts(text: String) {
+    var draft = makeDraft()
+    draft.spendableText = "500"
+    draft.incomeText = text
+    draft.savingsText = text
+    #expect(draft.issues.isEmpty)
+    #expect(draft.incomeCents == nil)
+    #expect(draft.availableCents == 50_000)
   }
 
   @Test("Any invalid amount hides available and blocks saving")
