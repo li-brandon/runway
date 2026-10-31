@@ -1,14 +1,25 @@
 #!/bin/sh
 # Fails if any call to `.minimumScaleFactor(...)` in Runway/ passes anything other than exactly
-# `TextScaling.minimumFactor`, so text wraps rather than shrinking past the shared floor. Literals
-# like 0.5 and other expressions, even ones that use the constant, are violations.
+# `TextScaling.minimumFactor` or `Runway.TextScaling.minimumFactor`, so text wraps rather than
+# shrinking past the shared floor. Literals like 0.5 and other expressions, even ones that use the
+# constant, are violations.
 #
-# Calls may span lines. Comments and string contents are ignored. TextScaling.swift, which owns
-# the floor, is exempt.
+# Calls may span lines, including between the name and its `(`, where blank lines and comments may
+# also appear. The name without a following `(` is not a call. Comments and string contents are
+# ignored. Runway/Views/TextScaling.swift, which owns the floor, is exempt.
 #
-# Prints file:line for each violation. Exits 0 if clean, 1 on violations, 2 if the check can't run.
+# Usage: lint-scale-factor.sh [root]
+# Scans root/Runway; root defaults to the repo root. Fixtures are covered by
+# test-lint-scale-factor.sh.
+#
+# Prints file:line for each violation, relative to root. Exits 0 if clean, 1 on violations, 2 if
+# the check can't run.
 
-cd "$(dirname "$0")/.." || exit 2
+if [ "$#" -gt 1 ]; then
+  echo "usage: lint-scale-factor.sh [root]" >&2
+  exit 2
+fi
+cd -- "${1:-$(dirname "$0")/..}" || exit 2
 if [ ! -d Runway ]; then
   echo "lint-scale-factor: Runway/ not found" >&2
   exit 2
@@ -24,6 +35,7 @@ violations="$(
     function reset_file() {
       if (open) report()
       open = 0
+      pending = 0
       comments = 0
       multiline = 0
       file = FILENAME
@@ -86,16 +98,25 @@ violations="$(
           if (open) break
           line = substr(line, i)
           gsub(/[ \t\r]/, "", args)
-          if (args != "TextScaling.minimumFactor") report()
+          if (args != "TextScaling.minimumFactor" && args != "Runway.TextScaling.minimumFactor") report()
+        } else if (pending) {
+          # Looks for the opening parenthesis, which may be on a later line.
+          sub(/^[ \t\r]+/, "", line)
+          if (line == "") break
+          pending = 0
+          if (substr(line, 1, 1) == "(") {
+            line = substr(line, 2)
+            open = 1
+            depth = 1
+            args = ""
+          }
         } else {
-          # The leading space stands in for the start of the line.
-          padded = " " line
-          if (!match(padded, /[^A-Za-z0-9_]minimumScaleFactor[ \t]*[(]/)) break
-          line = substr(padded, RSTART + RLENGTH)
+          # The spaces stand in for the start and end of the line.
+          padded = " " line " "
+          if (!match(padded, /[^A-Za-z0-9_]minimumScaleFactor[^A-Za-z0-9_]/)) break
+          line = substr(padded, RSTART + RLENGTH - 1)
           call_line = FNR
-          open = 1
-          depth = 1
-          args = ""
+          pending = 1
         }
       }
     }
