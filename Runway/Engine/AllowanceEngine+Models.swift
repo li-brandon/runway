@@ -274,6 +274,11 @@ extension Budget {
     mark.bill = bill
   }
 
+  func removeBillPayment(_ mark: BillPayment) {
+    billPayments.removeAll { $0 === mark }
+    modelContext?.delete(mark)
+  }
+
   /// Offsets the amount edit for an already settled bill, from the edit day forward.
   func rebaseMark(
     of bill: FixedBill,

@@ -208,10 +208,11 @@ extension RunwaySchemaV1 {
     }
   }
 
-  /// A bill marked paid, skipped, or unpaid again in the period containing `date`. Marks are
-  /// only ever added, so earlier days keep their figures: the bill's status is its latest mark in
-  /// the period (by `sequence`), and each mark records in `adjustmentCents` how much the period's
-  /// money changes from `date` on.
+  /// A bill marked paid, skipped, or unpaid again in the period containing `date`. Marks in a
+  /// period are only ever added, so earlier days keep their figures: the bill's status is its
+  /// latest mark in the period (by `sequence`), and each mark records in `adjustmentCents` how much
+  /// the period's money changes from `date` on. Only marks dated before the budget, which count
+  /// toward no period, can be edited or deleted, from History.
   ///
   /// While paid or skipped, the period gets back `plannedCents - paidCents`: the whole bill when
   /// skipped, the difference when paid at another amount, and nothing when paid as planned.
