@@ -35,7 +35,8 @@ import Foundation
 ///   period's carry-out uses the amount in effect on its last day.
 /// - **Extra money** (one-off income, and bills skipped or paid at a different amount) counts from
 ///   its own day: it raises that day's allowance and the period's remainder, and never changes
-///   earlier days. Extra money dated after today is ignored until its day arrives.
+///   earlier days. Extra money dated after today is ignored until its day arrives. Like expenses,
+///   extra money dated before the budget's start belongs to no period, so it never counts.
 /// - **Expenses** count only if their date is inside the period. Expenses dated after today are
 ///   ignored until their day arrives (but do count toward a completed period's carry-out).
 ///   Expenses dated before the budget's start (the anchor's local midnight) belong to no period,
