@@ -258,7 +258,10 @@ macOS runner. It:
    picked. This avoids hard-coding a device name that the runner image might not have.
 4. Runs `xcodebuild build-for-testing` and then `test-without-building`, with code signing
    turned off.
-5. If the tests pass, installs the built app on the same simulator with the status bar clock set
+5. Reads the test count from `test.xcresult` with `xcresulttool` and writes it to the job summary
+   and the log, even if the tests failed. If there is no bundle or it can't be read, it writes a
+   note instead. This step never fails the job.
+6. If the tests pass, installs the built app on the same simulator with the status bar clock set
    to 9:41, launches each screenshot scenario (see [Launch arguments](#launch-arguments)), and
    uploads `screenshots/<ticket>-<scenario>.png` as the `screenshots` artifact: setup uses 430,
    categories and category-picker use 440, quick logging uses 432, the four Today scenarios
@@ -276,7 +279,7 @@ macOS runner. It:
    `today-normal`, `today-over`, and `history-list` also get dark captures at both sizes, named
    `<ticket>-<scenario>-dark.png` and `<ticket>-<scenario>-ax5-dark.png`. The capture step
    restores light appearance and default text size even on failure.
-6. Uploads the `.xcresult` bundles as an artifact if any step fails.
+7. Uploads the `.xcresult` bundles as an artifact if any step fails.
 
 A newer push to the same pull request cancels the older run. Runs on `main` are never cancelled.
 Third-party actions are pinned to commit SHAs.

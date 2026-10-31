@@ -180,6 +180,60 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=''
 
+      # Reports on failed runs too, and must never fail the job: no -e, always exits 0.
+      - name: Test count
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 2
+        shell: bash {0}
+        run: |
+          BUNDLE="$RESULTS_DIR/test.xcresult"
+          SUMMARY_JSON="$RUNNER_TEMP/test-summary.json"
+
+          note() {
+            echo "Test count unavailable: $1"
+            echo "**Test count:** unavailable ($1)." >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          if [ ! -e "$BUNDLE" ]; then
+            note "no result bundle"
+            exit 0
+          fi
+
+          if ! xcrun xcresulttool get test-results summary --path "$BUNDLE" --compact \
+            > "$SUMMARY_JSON" 2>/dev/null \
+            && ! xcrun xcresulttool get test-results summary --path "$BUNDLE" \
+            > "$SUMMARY_JSON"; then
+            note "xcresulttool failed"
+            exit 0
+          fi
+
+          python3 - "$SUMMARY_JSON" <<'PY' || note "could not parse the summary"
+          import json
+          import os
+          import sys
+
+          with open(sys.argv[1]) as f:
+              summary = json.load(f)
+
+          total = summary["totalTestCount"]
+          rows = [
+              ("Total", total),
+              ("Passed", summary.get("passedTests", "?")),
+              ("Failed", summary.get("failedTests", "?")),
+              ("Skipped", summary.get("skippedTests", "?")),
+              ("Expected failures", summary.get("expectedFailures", "?")),
+              ("Result", summary.get("result", "?")),
+          ]
+
+          print("Test count:", ", ".join(f"{name.lower()}={value}" for name, value in rows))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write("### Test count\n\n| | |\n| --- | --- |\n")
+              for name, value in rows:
+                  f.write(f"| {name} | {value} |\n")
+          PY
+          exit 0
+
       - name: Build Release for simulator
         run: |
           xcodebuild build \
