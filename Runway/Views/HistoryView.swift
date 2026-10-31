@@ -523,6 +523,13 @@ struct HistoryView: View {
       }
       proxy.scrollTo(last.id, anchor: .top)
     } else if screenshotScenario == .historyBeforeBudget {
+      // Repeat once the lazily built rows above the section have their real heights.
+      proxy.scrollTo(Self.beforeBudgetID, anchor: .top)
+      do {
+        try await Task.sleep(for: .milliseconds(800))
+      } catch {
+        return
+      }
       proxy.scrollTo(Self.beforeBudgetID, anchor: .top)
     } else if screenshotScenario == .historyList, let first = days.first {
       proxy.scrollTo(first.date, anchor: .top)
