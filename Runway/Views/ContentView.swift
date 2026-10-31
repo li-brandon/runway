@@ -41,23 +41,13 @@ struct ContentView: View {
     _showsPeriodMoney = State(initialValue: screenshotScenario?.opensPeriodMoney == true)
   }
 
-  /// Shrinks the amount in steps down to the scale floor, then falls back to smaller text styles,
-  /// always on one line so the amount never breaks mid-number.
   private var remainingAmount: some View {
-    let text = Money.format(cents: allowance.remainingTodayCents)
-    let size = min(amountSize, RemainingAmountStyle.maximumSize)
-    return ViewThatFits(in: .horizontal) {
-      ForEach(RemainingAmountStyle.steps, id: \.self) { style in
-        Text(text)
-          .font(style.font(fullSize: size))
-          .lineLimit(RemainingAmountStyle.lineLimit)
-          .fixedSize(horizontal: true, vertical: false)
-      }
-      Text(text)
-        .font(RemainingAmountStyle.lastResort.font(fullSize: size))
-        .lineLimit(RemainingAmountStyle.lineLimit)
-        .minimumScaleFactor(TextScaling.minimumFactor)
-    }
+    AmountText(
+      cents: allowance.remainingTodayCents,
+      steps: AmountStyle.heroSteps,
+      fullSize: min(amountSize, AmountStyle.maximumSize),
+      accessibilityTitle: "Left to spend today"
+    )
   }
 
   var body: some View {
@@ -73,8 +63,6 @@ struct ContentView: View {
               remainingAmount
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .foregroundStyle(statusColor)
-                .accessibilityLabel("Left to spend today")
-                .accessibilityValue(Money.format(cents: allowance.remainingTodayCents))
               Label(status.title, systemImage: status.symbol)
                 .font(.caption)
                 .foregroundStyle(statusColor)
@@ -298,10 +286,7 @@ struct ContentView: View {
       }
       Text(spendingView.heading(mode: spendingMode))
         .font(.headline)
-      Text(Money.format(cents: summary.spentCents))
-        .font(.largeTitle.bold())
-        .lineLimit(2)
-        .minimumScaleFactor(TextScaling.minimumFactor)
+      AmountText(cents: summary.spentCents, steps: AmountStyle.summarySteps)
       if spendingView != .day {
         Text("Budget for these days: \(Money.format(cents: summary.budgetCents))")
           .font(.footnote)
@@ -450,8 +435,7 @@ struct ContentView: View {
         if expense.amountCents < 0 {
           Label("Refund", systemImage: "arrow.uturn.backward")
         }
-        Text(Money.format(cents: expense.amountCents))
-          .fontWeight(.semibold)
+        AmountText(cents: expense.amountCents)
       }
       Text(expense.date, format: .dateTime.hour().minute())
         .font(.caption)
