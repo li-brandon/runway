@@ -218,12 +218,13 @@ struct WidgetTimelineTests {
 struct LockScreenWidgetTests {
   private func allowance(
     today: Int = 4_250,
+    period: Int = 48_000,
     daysLeft: Int = 9,
     periodDays: Int = 14
   ) -> WidgetAllowance {
     WidgetAllowance(
       remainingTodayCents: today,
-      remainingPeriodCents: 48_000,
+      remainingPeriodCents: period,
       daysLeft: daysLeft,
       periodDays: periodDays,
       status: .normal
@@ -305,6 +306,53 @@ struct LockScreenWidgetTests {
         #expect(!label.contains("$"))
         #expect(!label.contains { $0.isNumber })
       }
+    }
+  }
+
+  @Test("Unredacted, the period label keeps the title and full amount")
+  func unredactedPeriodLabel() {
+    let cases: [(cents: Int, expected: String)] = [
+      (0, "Left this period, $0.00"),
+      (-12_500, "Left this period, -$125.00"),
+      (12_345_678, "Left this period, $123,456.78"),
+    ]
+    for item in cases {
+      let label = LockScreenText.periodAccessibilityLabel(
+        allowance(period: item.cents),
+        isPrivate: false,
+        locale: Money.fixedLocale
+      )
+      #expect(label == item.expected)
+    }
+  }
+
+  @Test("Redacted, the period label has no amount")
+  func redactedPeriodLabel() {
+    for cents in [0, 4_250, -12_500, 12_345_678] {
+      let label = LockScreenText.periodAccessibilityLabel(
+        allowance(period: cents),
+        isPrivate: true,
+        locale: Money.fixedLocale
+      )
+      #expect(label == "Left this period")
+      #expect(!label.contains("$"))
+      #expect(!label.contains { $0.isNumber })
+    }
+  }
+
+  @Test("Unredacted, the days label keeps the full text")
+  func unredactedDaysLeftLabel() {
+    #expect(LockScreenText.daysLeftAccessibilityLabel(0, isPrivate: false) == "0 days left")
+    #expect(LockScreenText.daysLeftAccessibilityLabel(1, isPrivate: false) == "1 day left")
+    #expect(LockScreenText.daysLeftAccessibilityLabel(14, isPrivate: false) == "14 days left")
+  }
+
+  @Test("Redacted, the days label has no digits")
+  func redactedDaysLeftLabel() {
+    for days in [0, 1, 14] {
+      let label = LockScreenText.daysLeftAccessibilityLabel(days, isPrivate: true)
+      #expect(label == "Days left")
+      #expect(!label.contains { $0.isNumber })
     }
   }
 

@@ -55,8 +55,30 @@ enum LockScreenText {
 
   /// What VoiceOver reads given the `text` with the figures. Redaction only covers what's drawn, so
   /// a redacted view needs a label without them.
-  static func accessibilityLabel(_ text: String, isPrivate: Bool) -> String {
-    isPrivate ? "Left to spend today" : text
+  static func accessibilityLabel(
+    _ text: String,
+    isPrivate: Bool,
+    generic: String = "Left to spend today"
+  ) -> String {
+    isPrivate ? generic : text
+  }
+
+  /// What VoiceOver reads for the amount left in the period.
+  static func periodAccessibilityLabel(
+    _ allowance: WidgetAllowance,
+    isPrivate: Bool,
+    locale: Locale = .autoupdatingCurrent
+  ) -> String {
+    accessibilityLabel(
+      "Left this period, \(Money.format(cents: allowance.remainingPeriodCents, locale: locale))",
+      isPrivate: isPrivate,
+      generic: "Left this period"
+    )
+  }
+
+  /// What VoiceOver reads for the days left.
+  static func daysLeftAccessibilityLabel(_ days: Int, isPrivate: Bool) -> String {
+    accessibilityLabel(daysLeft(days), isPrivate: isPrivate, generic: "Days left")
   }
 }
 
@@ -146,6 +168,9 @@ struct LockScreenWidgetContent: View {
         .font(.caption2)
         .lineLimit(1)
         .minimumScaleFactor(TextScaling.minimumFactor)
+        .accessibilityLabel(
+          LockScreenText.daysLeftAccessibilityLabel(allowance.daysLeft, isPrivate: isRedacted)
+        )
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -204,6 +229,8 @@ private struct DaysLeftGauge: View {
     .gaugeStyle(.accessoryCircularCapacity)
     .widgetAccentable()
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel(isRedacted ? "Days left" : LockScreenText.daysLeft(allowance.daysLeft))
+    .accessibilityLabel(
+      LockScreenText.daysLeftAccessibilityLabel(allowance.daysLeft, isPrivate: isRedacted)
+    )
   }
 }

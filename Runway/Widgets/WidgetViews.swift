@@ -50,6 +50,12 @@ struct RunwayWidgetContent: View {
   /// Off when the system tints the widget or makes it clear, where status colors don't apply.
   var usesStatusColor = true
 
+  @Environment(\.redactionReasons) private var redactionReasons
+
+  private var isRedacted: Bool {
+    redactionReasons.contains(.privacy)
+  }
+
   var body: some View {
     Group {
       switch entry.content {
@@ -113,7 +119,10 @@ struct RunwayWidgetContent: View {
           AmountText(
             cents: allowance.remainingPeriodCents,
             steps: [.plain(.subheadline, .semibold), .plain(.caption, .semibold)],
-            accessibilityTitle: "Left this period"
+            accessibilityOverride: LockScreenText.periodAccessibilityLabel(
+              allowance,
+              isPrivate: isRedacted
+            )
           )
           .privacySensitive(entry.amountsArePrivate)
         }
@@ -135,7 +144,10 @@ struct RunwayWidgetContent: View {
       cents: allowance.remainingTodayCents,
       steps: AmountStyle.heroSteps,
       fullSize: layout.heroSize,
-      accessibilityTitle: "Left to spend today"
+      accessibilityOverride: LockScreenText.accessibilityLabel(
+        LockScreenText.rectangularAccessibility(allowance),
+        isPrivate: isRedacted
+      )
     )
     .frame(maxWidth: .infinity, alignment: .leading)
     .foregroundStyle(statusColor(allowance))
