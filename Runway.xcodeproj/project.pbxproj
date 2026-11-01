@@ -76,6 +76,7 @@
 				Widgets/LockScreenWidgetViews.swift,
 				Widgets/WidgetEntry.swift,
 				Widgets/WidgetPrivacy.swift,
+				Widgets/WidgetTimelinePlanner.swift,
 				Widgets/WidgetViews.swift,
 			);
 			target = E5A5B7C9818FBA379FEED6F7 /* RunwayWidgets */;
