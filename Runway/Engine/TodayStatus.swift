@@ -1,7 +1,7 @@
 import Foundation
 
 /// Today's state uses the daily remainder, including when the period has money left.
-enum TodayStatus: Equatable, Sendable {
+enum TodayStatus: CaseIterable, Equatable, Sendable {
   case normal
   case nearLimit
   case noAllowance
