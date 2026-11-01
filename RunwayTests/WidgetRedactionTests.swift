@@ -257,15 +257,8 @@ struct WidgetRedactionRenderTests {
     let duration = try ContinuousClock().measure(body)
     let line = "TIMING WidgetRedactionRenderTests/\(name) own work: \(duration)"
     print(line)
-    // CI reads this file from the simulator's sandbox, since test output doesn't reach its log.
-    let log = FileManager.default.temporaryDirectory.appending(path: "runway-test-timings.txt")
-    if let handle = try? FileHandle(forWritingTo: log) {
-      defer { try? handle.close() }
-      _ = try? handle.seekToEnd()
-      try? handle.write(contentsOf: Data((line + "\n").utf8))
-    } else {
-      try? Data((line + "\n").utf8).write(to: log)
-    }
+    // CI prints these from the result bundle, since test output doesn't reach its log.
+    Attachment.record(line, named: "TIMING-\(name).txt")
     let isWithinBudget = duration < .seconds(10)
     #expect(isWithinBudget)
   }
