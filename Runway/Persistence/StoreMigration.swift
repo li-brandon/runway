@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Moves the store once from its old location to a new one, without opening the old store. Run it
 /// before any container opens either location.
