@@ -131,7 +131,8 @@ there too, marked **Extra money**, and follows the same rules. Saving it without
 keeps its date. Bill marks (paid, skipped, or unpaid again) dated before the start are listed under
 their bill's name. Tap or swipe one to change its status, paid amount, or date, or to delete it with
 Undo. They count toward no period's totals or carryover, and their date stays before the start, so
-an edit can't move one into a period.
+an edit can't move one into a period. When any of these exist, the newest period's page shows a row
+like **7 items before budget**, counting the same items, that jumps to the section.
 
 Nothing per day is stored. `HistoryEngine` (`Runway/Engine`) derives every figure from the budget
 and expenses with `AllowanceEngine`'s rules, so an edit or delete updates later days, carryover,
@@ -165,7 +166,8 @@ period's summary, carryover, and categories), and `history-edit` (the edit sheet
 latest expense), and `history-before-budget` (the oldest period's page, scrolled to expenses and
 extra money dated before the budget's start), `history-before-budget-bills` (the same page, scrolled
 to bill marks dated before the start), `history-bill-entry-edit` (the bill entry edit sheet on a
-paid mark dated before the start), `history-extra-money` (the previous period, scrolled
+paid mark dated before the start), `history-before-budget-row` (the current period's page, with its
+link to expenses, extra money, and bill marks dated before the start), `history-extra-money` (the previous period, scrolled
 to a day with an extra money row among its expenses), and `extra-money-edit-negative` (the extra
 money edit sheet on a negative imported amount). `-RunwayScreenshotScrollTo categories` scrolls History to its category
 totals, `before-budget` scrolls it to the end of its Before budget section, `extra-money-row`
@@ -314,7 +316,8 @@ macOS runner. It:
    categories and category-picker use 440, quick logging uses 432, the four Today scenarios
    use 433, the three History scenarios use 434, and the privacy scenarios use 437, except the
    import and reset confirms, which use 468. `history-before-budget` uses 463b,
-   `history-before-budget-bills` and `history-bill-entry-edit` use 476, `history-extra-money` and
+   `history-before-budget-bills` and `history-bill-entry-edit` use 476,
+   `history-before-budget-row` uses 487, `history-extra-money` and
    `extra-money-edit-negative` use 475, and
    `today-large-amount` and `extra-money` use 469, and `today-import-max` uses 477. A failed
    capture fails the job. Every scenario is captured at default and largest accessibility text sizes. Setup

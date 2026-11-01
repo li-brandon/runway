@@ -28,6 +28,8 @@ struct HistoryView: View {
 
   /// 0 shows the current period; each step back shows the one before it.
   @State private var periodOffset = 0
+  /// Counts taps on the Before budget link, so each one scrolls once its page has rendered.
+  @State private var beforeBudgetJumps = 0
   @State private var editing: Expense?
   @State private var editingExtra: ExtraMoney?
   @State private var editingBillPayment: BillPayment?
@@ -85,9 +87,10 @@ struct HistoryView: View {
       ($0.note, $0.amountCents) < ($1.note, $1.amountCents)
     }
     let extraMoneyByDay = engine.itemsByDay(extras, in: periods[index].period) { $0.date }
-    // They follow the oldest period, so only its page lists them.
+    // They follow the oldest period, so only its page lists them. The newest page links to them.
+    let isOldest = index == periods.count - 1
     var beforeBudget: [HistoryItem] = []
-    if index == periods.count - 1 {
+    if isOldest || index == 0 {
       // Latest first, so same-day marks of a bill keep a fixed order.
       let marks = budget.billPayments.sorted { $0.sequence > $1.sequence }
       var items = expenses.map(HistoryItem.expense)
@@ -100,7 +103,8 @@ struct HistoryView: View {
       index: index,
       expensesByDay: expensesByDay,
       extraMoneyByDay: extraMoneyByDay,
-      beforeBudget: beforeBudget
+      beforeBudget: isOldest ? beforeBudget : [],
+      beforeBudgetLinkCount: index == 0 ? beforeBudget.count : 0
     )
   }
 
@@ -117,6 +121,9 @@ struct HistoryView: View {
       List {
         Section {
           periodNavigator(selected, isOldest: index == all.count - 1)
+          if let title = page.beforeBudgetLinkTitle {
+            beforeBudgetLink(title, oldestOffset: page.oldestPeriodOffset)
+          }
         }
         summarySection(selected, carriesOut: carriesOut)
         categorySection(selected)
@@ -140,6 +147,10 @@ struct HistoryView: View {
       .listStyle(.insetGrouped)
       .task {
         await prepareScreenshot(proxy: proxy, days: selected.days)
+      }
+      .task(id: beforeBudgetJumps) {
+        guard beforeBudgetJumps > 0 else { return }
+        await scrollAndSettle(proxy, to: Self.beforeBudgetID)
       }
     }
     .safeAreaInset(edge: .bottom) {
@@ -328,6 +339,23 @@ struct HistoryView: View {
     .accessibilityElement(children: .combine)
   }
 
+  /// Pages back to the oldest period, which lists the items, and scrolls to them.
+  private func beforeBudgetLink(_ title: String, oldestOffset: Int) -> some View {
+    Button {
+      periodOffset = oldestOffset
+      beforeBudgetJumps += 1
+    } label: {
+      Label(title, systemImage: "clock.arrow.circlepath")
+        .font(.subheadline)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+    .id(Self.beforeBudgetLinkID)
+    .accessibilityLabel(title)
+    .accessibilityHint("Shows the Before budget section.")
+  }
+
   /// The title is a row, like a day's summary, so scrolling to it can't leave it off screen.
   private func beforeBudgetSection(_ items: [HistoryItem]) -> some View {
     Section {
@@ -345,6 +373,7 @@ struct HistoryView: View {
   }
 
   private static let beforeBudgetID = "before-budget"
+  private static let beforeBudgetLinkID = "before-budget-link"
 
   @ViewBuilder
   private func beforeBudgetRow(_ item: HistoryItem) -> some View {
@@ -623,6 +652,9 @@ struct HistoryView: View {
     {
       // The day's summary at the top, with its expenses and extra money below it.
       await scrollAndSettle(proxy, to: day)
+    } else if screenshotScenario == .historyBeforeBudgetRow {
+      // Stays at the top of the page unless large text pushes the row below the screen.
+      proxy.scrollTo(Self.beforeBudgetLinkID, anchor: .bottom)
     } else if screenshotScenario == .historyList, let first = days.first {
       proxy.scrollTo(first.date, anchor: .top)
     } else if screenshotScenario == .history500, let oldest = page.selected.days.last {
@@ -653,8 +685,23 @@ struct HistoryPage {
   /// Listed apart from `expensesByDay` because it's income: its rows never add to a day's spending.
   let extraMoneyByDay: [Date: [ExtraMoney]]
   let beforeBudget: [HistoryItem]
+  /// On the newest period's page, how many items the oldest page's Before budget section lists.
+  /// 0 on other pages, which have no link.
+  let beforeBudgetLinkCount: Int
 
   var selected: HistoryPeriod<PersistentIdentifier?> { periods[index] }
+
+  /// The period offset of the page that lists the Before budget section.
+  var oldestPeriodOffset: Int { periods.count - 1 }
+
+  /// The link to the Before budget section, or `nil` if this page shows none.
+  var beforeBudgetLinkTitle: String? {
+    switch beforeBudgetLinkCount {
+    case 0: nil
+    case 1: "1 item before budget"
+    default: "\(beforeBudgetLinkCount) items before budget"
+    }
+  }
 }
 
 /// An expense, extra money, or a bill mark: a row of the Before budget section, or what Undo

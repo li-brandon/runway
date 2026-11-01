@@ -108,6 +108,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   case historyBeforeBudget = "history-before-budget"
   /// The oldest period's page, scrolled to bill marks dated before the budget's start.
   case historyBeforeBudgetBills = "history-before-budget-bills"
+  /// The newest period's page, with a link to expenses, money, and bill marks before the start.
+  case historyBeforeBudgetRow = "history-before-budget-row"
   /// The bill entry edit sheet open on a paid mark dated before the budget's start.
   case historyBillEntryEdit = "history-bill-entry-edit"
   /// The previous period, scrolled to a day with an extra money row among its expenses.
@@ -182,7 +184,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   var isHistory: Bool {
     switch self {
     case .historyList, .historyPeriodSummary, .historyEdit, .history500, .historyBeforeBudget,
-      .historyBeforeBudgetBills, .historyBillEntryEdit, .historyExtraMoney,
+      .historyBeforeBudgetBills, .historyBeforeBudgetRow, .historyBillEntryEdit, .historyExtraMoney,
       .extraMoneyEditNegative:
       true
     default:
@@ -197,7 +199,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       .spendingMonthRolling:
       Self.fixedToday
     case .historyList, .historyPeriodSummary, .historyEdit, .history500, .historyBeforeBudget,
-      .historyBeforeBudgetBills, .historyBillEntryEdit, .historyExtraMoney,
+      .historyBeforeBudgetBills, .historyBeforeBudgetRow, .historyBillEntryEdit, .historyExtraMoney,
       .extraMoneyEditNegative:
       Self.fixedToday
     default:
@@ -274,7 +276,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
       budget = Budget(periodStart: periodStart, spendablePerPeriodCents: 0)
       bills = []
     case .historyList, .historyPeriodSummary, .historyEdit, .history500, .historyBeforeBudget,
-      .historyBeforeBudgetBills, .historyBillEntryEdit, .historyExtraMoney,
+      .historyBeforeBudgetBills, .historyBeforeBudgetRow, .historyBillEntryEdit, .historyExtraMoney,
       .extraMoneyEditNegative:
       return try seedHistory(into: context, now: now, calendar: calendar)
     case .setupWarning:
@@ -410,9 +412,9 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   /// `history-before-budget` adds three expenses and a gift in the days before the budget's start,
   /// and `history-before-budget-bills` two bills, covered by more spendable so $1,100 stays
   /// available, with a paid, a skipped, and a cleared mark before it (the last for a deleted bill).
-  /// `history-bill-entry-edit` seeds the same. `history-extra-money` adds a gift, and
-  /// `extra-money-edit-negative` a negative amount as from a backup, on the completed period's last
-  /// day.
+  /// `history-bill-entry-edit` seeds the same, and `history-before-budget-row` both.
+  /// `history-extra-money` adds a gift, and `extra-money-edit-negative` a negative amount as from a
+  /// backup, on the completed period's last day.
   private func seedHistory(
     into context: ModelContext,
     now: Date,
@@ -420,7 +422,10 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   ) throws -> Budget {
     let today = calendar.startOfDay(for: now)
     let start = calendar.date(byAdding: .day, value: -17, to: today) ?? today
-    let seedsBillMarks = self == .historyBeforeBudgetBills || self == .historyBillEntryEdit
+    let seedsEarlierItems = self == .historyBeforeBudget || self == .historyBeforeBudgetRow
+    let seedsBillMarks =
+      self == .historyBeforeBudgetBills || self == .historyBillEntryEdit
+      || self == .historyBeforeBudgetRow
     let budget = Budget(
       periodLength: .biweekly,
       periodStart: start,
@@ -469,7 +474,7 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
         now: date
       )
     }
-    if self == .historyBeforeBudget {
+    if seedsEarlierItems {
       let earlier: [(note: String, category: String, cents: Int, daysBefore: Int)] = [
         ("Moving truck", "Transport", 18_900, 2),
         ("Returned lamp", "Shopping", -3_500, 4),
