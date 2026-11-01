@@ -56,6 +56,11 @@ struct RunwayWidgetContent: View {
     redactionReasons.contains(.privacy)
   }
 
+  /// Only private views get redacted, so any other would draw the fixed text as if it were real.
+  private var showsFixedText: Bool {
+    isRedacted && entry.amountsArePrivate
+  }
+
   var body: some View {
     Group {
       switch entry.content {
@@ -122,7 +127,8 @@ struct RunwayWidgetContent: View {
             accessibilityOverride: LockScreenText.periodAccessibilityLabel(
               allowance,
               isPrivate: isRedacted
-            )
+            ),
+            isRedacted: showsFixedText
           )
           .privacySensitive(entry.amountsArePrivate)
         }
@@ -147,7 +153,8 @@ struct RunwayWidgetContent: View {
       accessibilityOverride: LockScreenText.accessibilityLabel(
         LockScreenText.rectangularAccessibility(allowance),
         isPrivate: isRedacted
-      )
+      ),
+      isRedacted: showsFixedText
     )
     .frame(maxWidth: .infinity, alignment: .leading)
     .foregroundStyle(statusColor(allowance))
@@ -156,7 +163,10 @@ struct RunwayWidgetContent: View {
   }
 
   private func statusLabel(_ allowance: WidgetAllowance) -> some View {
-    Label(allowance.status.title, systemImage: allowance.status.symbol)
+    Label(
+      LockScreenText.statusTitle(allowance.status, isRedacted: showsFixedText),
+      systemImage: LockScreenText.statusSymbol(allowance.status, isRedacted: showsFixedText)
+    )
       .font(.caption2)
       .foregroundStyle(statusColor(allowance))
       .lineLimit(1)

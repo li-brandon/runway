@@ -6,16 +6,29 @@ struct AmountCandidate: Hashable {
   let style: AmountStyle
   let text: String
 
+  /// Drawn instead of a redacted amount. Redaction draws a placeholder as wide as its text, so the
+  /// real text would show the amount's length and sign.
+  static let redactedText = "$0,000.00"
+
+  /// The amount's `text`, or the fixed text when it's redacted.
+  static func displayed(_ text: String, isRedacted: Bool) -> String {
+    isRedacted ? redactedText : text
+  }
+
   /// The full amount at each step, largest first, then abbreviated at the smallest. Amounts that
-  /// abbreviating wouldn't change have no abbreviated candidate.
+  /// abbreviating wouldn't change have no abbreviated candidate, and a redacted amount has none.
   static func candidates(
     cents: Int,
     steps: [AmountStyle],
+    isRedacted: Bool = false,
     locale: Locale = .autoupdatingCurrent
   ) -> [AmountCandidate] {
-    let full = Money.format(cents: cents, locale: locale)
+    let full = displayed(Money.format(cents: cents, locale: locale), isRedacted: isRedacted)
     var candidates = steps.map { AmountCandidate(style: $0, text: full) }
-    let abbreviated = Money.abbreviated(cents: cents, locale: locale)
+    let abbreviated = displayed(
+      Money.abbreviated(cents: cents, locale: locale),
+      isRedacted: isRedacted
+    )
     if let smallest = steps.last, abbreviated != full {
       candidates.append(AmountCandidate(style: smallest, text: abbreviated))
     }
@@ -43,10 +56,12 @@ struct AmountText: View {
   var accessibilityTitle: LocalizedStringKey?
   /// Read instead of the title and amount, for a view that can't always read the amount.
   var accessibilityOverride: String?
+  /// Draws fixed text in place of the amount, for a view that's being redacted.
+  var isRedacted = false
   var locale = Locale.autoupdatingCurrent
 
   var candidates: [AmountCandidate] {
-    AmountCandidate.candidates(cents: cents, steps: steps, locale: locale)
+    AmountCandidate.candidates(cents: cents, steps: steps, isRedacted: isRedacted, locale: locale)
   }
 
   var accessibilityText: String {
