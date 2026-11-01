@@ -168,7 +168,7 @@ struct WidgetTimelineTests {
     let now = calendar.date(2026, 6, 10, 12)
     let container = try makeContainer(now: now)
     let result = plan(in: container, amountsArePrivate: true, now: now)
-    #expect(result.entries.allSatisfy(\.amountsArePrivate))
+    #expect(result.entries.allSatisfy { $0.amountsArePrivate })
   }
 
   @Test("The read-only store opens only once it exists")
