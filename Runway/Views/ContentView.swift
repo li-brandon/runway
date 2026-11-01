@@ -11,6 +11,7 @@ struct ContentView: View {
   @Environment(\.modelContext) private var modelContext
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.todayViewHooks) private var hooks
   @ScaledMetric(relativeTo: .largeTitle) private var amountSize = 80.0
   @AppStorage(SpendingPreferences.viewKey)
   private var spendingView = SpendingPreferences.defaultView
@@ -158,7 +159,7 @@ struct ContentView: View {
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("History", systemImage: "clock.arrow.circlepath") {
-            navigation.showsHistory = true
+            showHistory()
           }
           .frame(minWidth: 44, minHeight: 44)
           .accessibilityHint("Shows past days and periods, where you can edit expenses.")
@@ -182,7 +183,11 @@ struct ContentView: View {
       .onChange(of: presentsSheet, initial: true) { _, isPresented in
         navigation.todayPresentsSheet = isPresented
       }
-      .onOpenURL { navigation.open($0, now: .now) }
+      .onOpenURL { open($0) }
+      .onAppear {
+        hooks?.showHistory = { showHistory() }
+        hooks?.openURL = { open($0) }
+      }
       .sensoryFeedback(.success, trigger: saveFeedback)
       .onChange(of: scenePhase) { _, phase in
         guard phase == .active else { return }
@@ -369,6 +374,14 @@ struct ContentView: View {
     }
     .buttonStyle(.bordered)
     .disabled(!hasStarted)
+  }
+
+  private func showHistory() {
+    navigation.showsHistory = true
+  }
+
+  private func open(_ url: URL) {
+    navigation.open(url, now: .now)
   }
 
   /// Re-expresses the budget's paydays in the current time zone after the device moves, so the

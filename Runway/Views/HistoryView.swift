@@ -17,6 +17,7 @@ struct HistoryView: View {
 
   @Environment(\.modelContext) private var modelContext
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.todayViewHooks) private var hooks
 
   @Query(
     sort: [
@@ -153,6 +154,8 @@ struct HistoryView: View {
     }
     .navigationTitle("History")
     .navigationBarTitleDisplayMode(.inline)
+    .onAppear { hooks?.deleteExpense = { delete($0) } }
+    .onDisappear { hooks?.deleteExpense = nil }
     .task(id: undoSlot.pending?.expiresAt) {
       guard let deadline = undoSlot.pending?.expiresAt else { return }
       let delay = max(0, deadline.timeIntervalSinceNow)
@@ -482,6 +485,8 @@ struct HistoryView: View {
     .padding()
     .frame(maxWidth: .infinity)
     .background(.regularMaterial)
+    .onAppear { hooks?.undoDelete = { restore() } }
+    .onDisappear { hooks?.undoDelete = nil }
   }
 
   // MARK: - Text
