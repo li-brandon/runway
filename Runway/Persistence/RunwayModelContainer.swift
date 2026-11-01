@@ -127,15 +127,16 @@ enum RunwayModelContainer {
   }
 
   /// Per-model row counts of the store at `url`, migrating its schema if needed. Throws unless it
-  /// opens and every model can be read. The container is released on return.
+  /// opens and every model can be read. The pool drains Core Data's autoreleased references, so the
+  /// container doesn't outlive this call and keep the store open while its files are moved.
   static func storeCounts(at url: URL) throws -> [String: Int] {
-    try counts(in: ModelContext(try make(url: url)))
+    try autoreleasepool { try counts(in: ModelContext(try make(url: url))) }
   }
 
-  /// Per-model row counts of the existing store at `url`, opened read-only. The container is
-  /// released on return.
+  /// Per-model row counts of the existing store at `url`, opened read-only. The pool drains Core
+  /// Data's autoreleased references, as in `storeCounts(at:)`.
   static func readOnlyStoreCounts(at url: URL) throws -> [String: Int] {
-    try counts(in: ModelContext(try makeReadOnly(url: url)))
+    try autoreleasepool { try counts(in: ModelContext(try makeReadOnly(url: url))) }
   }
 
   private static func counts(in context: ModelContext) throws -> [String: Int] {
