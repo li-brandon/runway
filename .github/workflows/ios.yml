@@ -232,6 +232,9 @@ jobs:
               for name, value in rows:
                   f.write(f"| {name} | {value} |\n")
           PY
+          # Per-test timings that tests print as "TIMING ..." lines.
+          xcrun xcresulttool get log --type console --path "$BUNDLE" 2>/dev/null \
+            | grep -o 'TIMING [^"\\]*' | sort -u
           exit 0
 
       - name: Build Release for simulator
