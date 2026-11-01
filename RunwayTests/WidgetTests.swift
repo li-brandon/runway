@@ -216,6 +216,8 @@ struct WidgetTimelineTests {
 }
 
 struct LockScreenWidgetTests {
+  private let statuses: [TodayStatus] = [.normal, .nearLimit, .noAllowance, .over]
+
   private func allowance(
     today: Int = 4_250,
     period: Int = 48_000,
@@ -353,6 +355,25 @@ struct LockScreenWidgetTests {
       let label = LockScreenText.daysLeftAccessibilityLabel(days, isPrivate: true)
       #expect(label == "Days left")
       #expect(!label.contains { $0.isNumber })
+    }
+  }
+
+  @Test("Unredacted, the status label is the status title")
+  func unredactedStatusLabel() {
+    for status in statuses {
+      let label = LockScreenText.statusAccessibilityLabel(status, isPrivate: false)
+      #expect(label == status.title)
+    }
+  }
+
+  @Test("Redacted, the status label names no status")
+  func redactedStatusLabel() {
+    for status in statuses {
+      let label = LockScreenText.statusAccessibilityLabel(status, isPrivate: true)
+      #expect(label == "Budget status")
+      for other in statuses {
+        #expect(!label.contains(other.title))
+      }
     }
   }
 

@@ -80,6 +80,11 @@ enum LockScreenText {
   static func daysLeftAccessibilityLabel(_ days: Int, isPrivate: Bool) -> String {
     accessibilityLabel(daysLeft(days), isPrivate: isPrivate, generic: "Days left")
   }
+
+  /// What VoiceOver reads for the budget status.
+  static func statusAccessibilityLabel(_ status: TodayStatus, isPrivate: Bool) -> String {
+    accessibilityLabel(status.title, isPrivate: isPrivate, generic: "Budget status")
+  }
 }
 
 /// A lock-screen widget's content. Takes everything as parameters, so CI can render it outside a

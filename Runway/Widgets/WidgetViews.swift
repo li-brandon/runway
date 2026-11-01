@@ -161,6 +161,10 @@ struct RunwayWidgetContent: View {
       .foregroundStyle(statusColor(allowance))
       .lineLimit(1)
       .minimumScaleFactor(TextScaling.minimumFactor)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(
+        LockScreenText.statusAccessibilityLabel(allowance.status, isPrivate: isRedacted)
+      )
       .privacySensitive(entry.amountsArePrivate)
   }
 
