@@ -3,6 +3,7 @@ import Foundation
 import SwiftData
 import Testing
 import UIKit
+import os
 
 @testable import Runway
 
@@ -187,5 +188,76 @@ struct WidgetReloaderTests {
     #expect(count == 2)
     center.post(name: NSNotification.Name.NSSystemTimeZoneDidChange, object: nil)
     #expect(count == 3)
+  }
+
+  @Test("Expense, extra money, bill, budget, time zone, import, and reset saves all fire")
+  func everyMutationFires() throws {
+    let calendar = Calendar.gregorian("America/Chicago")
+    let now = calendar.date(2026, 6, 10, 12)
+    let container = try RunwayModelContainer.make(inMemory: true)
+    let context = ModelContext(container)
+    let service = CategoryService(context: context)
+    try service.seed()
+    let budget = Budget(
+      periodLength: .biweekly,
+      periodStart: calendar.date(2026, 6, 1),
+      spendablePerPeriodCents: 140_000,
+      timeZoneIdentifier: calendar.timeZone.identifier
+    )
+    context.insert(budget)
+    let bill = FixedBill(name: "Phone", amountCents: 4_500)
+    context.insert(bill)
+    bill.budget = budget
+    try context.save()
+    let validated = try DataImport.validate(try DataExport.snapshot(of: context))
+
+    // Other tests save at the same time, on any thread, so count only this store's saves.
+    let fired = OSAllocatedUnfairLock(initialState: 0)
+    let subscription = WidgetReloader.triggers().sink { @Sendable notification in
+      guard (notification.object as? ModelContext)?.container === container else { return }
+      fired.withLock { $0 += 1 }
+    }
+    defer { subscription.cancel() }
+
+    func fires(during change: () throws -> Void) throws -> Int {
+      let before = fired.withLock { $0 }
+      try change()
+      return fired.withLock { $0 } - before
+    }
+
+    let expense = try fires {
+      try service.createExpense(amountCents: 2_500, date: now, now: now)
+      try context.save()
+    }
+    #expect(expense > 0)
+    let extraMoney = try fires {
+      budget.addExtraMoney(cents: 5_000, note: "Refund", now: now, calendar: calendar)
+      try context.save()
+    }
+    #expect(extraMoney > 0)
+    let billMark = try fires {
+      budget.setStatus(.paid(cents: 4_500), of: bill, now: now, calendar: calendar)
+      try context.save()
+    }
+    #expect(billMark > 0)
+    let schedule = try fires {
+      budget.updatePeriod(.monthly, start: calendar.date(2026, 6, 1), now: now, calendar: calendar)
+      try context.save()
+    }
+    #expect(schedule > 0)
+    let timeZone = try fires {
+      budget.adoptTimeZone(of: Calendar.gregorian("Asia/Tokyo"))
+      try context.save()
+    }
+    #expect(timeZone > 0)
+    // Both of these save a scratch context rather than this one.
+    let imported = try fires {
+      try DataImport.apply(validated, to: context)
+    }
+    #expect(imported > 0)
+    let reset = try fires {
+      try DataReset.reset(in: context)
+    }
+    #expect(reset > 0)
   }
 }
