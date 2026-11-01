@@ -167,15 +167,15 @@ struct RunwayWidgetContent: View {
       LockScreenText.statusTitle(allowance.status, isRedacted: showsFixedText),
       systemImage: LockScreenText.statusSymbol(allowance.status, isRedacted: showsFixedText)
     )
-      .font(.caption2)
-      .foregroundStyle(statusColor(allowance))
-      .lineLimit(1)
-      .minimumScaleFactor(TextScaling.minimumFactor)
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel(
-        LockScreenText.statusAccessibilityLabel(allowance.status, isPrivate: isRedacted)
-      )
-      .privacySensitive(entry.amountsArePrivate)
+    .font(.caption2)
+    .foregroundStyle(statusColor(allowance))
+    .lineLimit(1)
+    .minimumScaleFactor(TextScaling.minimumFactor)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      LockScreenText.statusAccessibilityLabel(allowance.status, isPrivate: isRedacted)
+    )
+    .privacySensitive(entry.amountsArePrivate)
   }
 
   private func statusColor(_ allowance: WidgetAllowance) -> Color {
