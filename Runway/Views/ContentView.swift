@@ -392,13 +392,7 @@ struct ContentView: View {
 
   private var status: TodayStatus { TodayStatus(allowance) }
 
-  private var statusColor: Color {
-    switch status {
-    case .normal: .primary
-    case .nearLimit, .noAllowance: .orange
-    case .over: .red
-    }
-  }
+  private var statusColor: Color { status.color }
 
   private var showsCarryIn: Bool {
     AllowanceEngine(calendar: .current).isCarryoverEnabled(

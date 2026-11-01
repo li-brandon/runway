@@ -1,13 +1,6 @@
 import Foundation
 import SwiftData
 
-extension BillPayment {
-  /// What the period gets back from the bill while this mark stands.
-  var creditCents: Int {
-    isCleared ? 0 : plannedCents - paidCents
-  }
-}
-
 /// The form state for editing a bill mark dated before the budget. Paid needs an amount, which can
 /// be zero as on This Period; skipped and unpaid have none.
 struct BillPaymentDraft {

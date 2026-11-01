@@ -104,7 +104,7 @@ jobs:
       - name: Lint (swift-format)
         run: |
           xcrun swift-format --version
-          xcrun swift-format lint --strict --recursive Runway RunwayTests
+          xcrun swift-format lint --strict --recursive Runway RunwayTests RunwayWidgets
 
       - name: Lint (scale factor)
         run: |
@@ -279,6 +279,29 @@ jobs:
             esac
           }
           mkdir -p screenshots
+
+          # Widgets can't be launched on their own, so a test renders their views to PNGs. A failed
+          # test, or fewer PNGs than it should write, fails the job.
+          if ! TEST_RUNNER_RUNWAY_WIDGET_SCREENSHOTS_DIR="$PWD/screenshots" xcodebuild test-without-building \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$RESULTS_DIR/widget-screenshots.xcresult" \
+            -only-testing:RunwayTests/WidgetSnapshotTests \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=''; then
+            echo "::error title=Widget screenshots::The widget snapshot test failed"
+            exit 1
+          fi
+          WIDGET_SHOTS="$(find screenshots -name '480-widget-*.png' | wc -l | tr -d ' ')"
+          echo "Widget screenshots: $WIDGET_SHOTS"
+          if [ "$WIDGET_SHOTS" -lt 36 ]; then
+            echo "::error title=Widget screenshots::Expected at least 36 widget screenshots but rendered $WIDGET_SHOTS"
+            exit 1
+          fi
 
           # Screenshots run on a dedicated narrow (375pt) iPhone so layout problems show up.
           TYPES_JSON="$RUNNER_TEMP/simctl-devicetypes.json"

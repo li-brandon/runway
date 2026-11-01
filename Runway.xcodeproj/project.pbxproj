@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E81962E5EBC1ED6BF976DA7D /* RunwayWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 327ACF412D714F0C27FF33D6 /* RunwayWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		57A9C1E3B6D28F04A9E5B3C7 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -14,22 +18,97 @@
 			remoteGlobalIDString = 9B1C5E7A3F0D82C6A4B9E017;
 			remoteInfo = Runway;
 		};
+		5FE2568AD00F7A45B97FAD17 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8F3C2A61D94E07B5C1A2E3F4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E5A5B7C9818FBA379FEED6F7;
+			remoteInfo = RunwayWidgets;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		7642345835B43EC0A8F4997E /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				E81962E5EBC1ED6BF976DA7D /* RunwayWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		E92A4B7C1D03F6A8B5C2E471 /* Runway.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Runway.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3A6D8F1E0C52B79A4D1E6C95 /* RunwayTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunwayTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		327ACF412D714F0C27FF33D6 /* RunwayWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RunwayWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8C5671D8F890FDD0BA8873DF /* Exceptions for "Runway" folder in "Runway" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9B1C5E7A3F0D82C6A4B9E017 /* Runway */;
+		};
+		2CF961DA0530D485FB214659 /* Exceptions for "Runway" folder in "RunwayWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Engine/AllowanceEngine+Models.swift",
+				Engine/AllowanceEngine.swift,
+				Engine/BudgetChanges.swift,
+				Engine/HistoryEngine.swift,
+				Engine/TodayStatus.swift,
+				Models/RunwaySchemaV1.swift,
+				Models/RunwaySchemaV1Original.swift,
+				Money/Money.swift,
+				Persistence/RunwayMigrationPlan.swift,
+				Persistence/RunwayModelContainer.swift,
+				Persistence/StoreMigration.swift,
+				Views/AmountText.swift,
+				Views/TextScaling.swift,
+				Views/TodayStatusColor.swift,
+				Widgets/AppDeepLink.swift,
+				Widgets/WidgetEntry.swift,
+				Widgets/WidgetPrivacy.swift,
+				Widgets/WidgetViews.swift,
+			);
+			target = E5A5B7C9818FBA379FEED6F7 /* RunwayWidgets */;
+		};
+		9558710E704262250D399913 /* Exceptions for "RunwayWidgets" folder in "RunwayWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = E5A5B7C9818FBA379FEED6F7 /* RunwayWidgets */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		71E5C9A03B8D24F6E9A1B7C3 /* Runway */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				8C5671D8F890FDD0BA8873DF /* Exceptions for "Runway" folder in "Runway" target */,
+				2CF961DA0530D485FB214659 /* Exceptions for "Runway" folder in "RunwayWidgets" target */,
+			);
 			path = Runway;
 			sourceTree = "<group>";
 		};
 		C08F3D6E2A71B94D5E6F0A28 /* RunwayTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = RunwayTests;
+			sourceTree = "<group>";
+		};
+		6FDDD2CA55EAEDA56BE813AD /* RunwayWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9558710E704262250D399913 /* Exceptions for "RunwayWidgets" folder in "RunwayWidgets" target */,
+			);
+			path = RunwayWidgets;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -49,6 +128,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E66672BF7A7F74DBD991057F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -57,6 +143,7 @@
 			children = (
 				71E5C9A03B8D24F6E9A1B7C3 /* Runway */,
 				C08F3D6E2A71B94D5E6F0A28 /* RunwayTests */,
+				6FDDD2CA55EAEDA56BE813AD /* RunwayWidgets */,
 				B46A1E83C2D09F57A3E8C601 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -66,6 +153,7 @@
 			children = (
 				E92A4B7C1D03F6A8B5C2E471 /* Runway.app */,
 				3A6D8F1E0C52B79A4D1E6C95 /* RunwayTests.xctest */,
+				327ACF412D714F0C27FF33D6 /* RunwayWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -80,10 +168,12 @@
 				4C8E1A9D6B23F0E5A7C2D839 /* Sources */,
 				A07D3C5B9E61F28D4B0A7E14 /* Frameworks */,
 				6E4B9F2D8A05C17E3D9B1F60 /* Resources */,
+				7642345835B43EC0A8F4997E /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				6EA06F1472FA0ED655859E32 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				71E5C9A03B8D24F6E9A1B7C3 /* Runway */,
@@ -118,6 +208,28 @@
 			productReference = 3A6D8F1E0C52B79A4D1E6C95 /* RunwayTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		E5A5B7C9818FBA379FEED6F7 /* RunwayWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CF1450B3E918A36B6ACB630C /* Build configuration list for PBXNativeTarget "RunwayWidgets" */;
+			buildPhases = (
+				F55A9CB465FFBE7CFAFFE068 /* Sources */,
+				E66672BF7A7F74DBD991057F /* Frameworks */,
+				2CA5E7BC23FDFAC8A4FA4A1E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				6FDDD2CA55EAEDA56BE813AD /* RunwayWidgets */,
+			);
+			name = RunwayWidgets;
+			packageProductDependencies = (
+			);
+			productName = RunwayWidgets;
+			productReference = 327ACF412D714F0C27FF33D6 /* RunwayWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -134,6 +246,9 @@
 					D5F2A8C64E1B09D7C3A5F682 = {
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = 9B1C5E7A3F0D82C6A4B9E017;
+					};
+					E5A5B7C9818FBA379FEED6F7 = {
+						CreatedOnToolsVersion = 27.0;
 					};
 				};
 			};
@@ -153,6 +268,7 @@
 			targets = (
 				9B1C5E7A3F0D82C6A4B9E017 /* Runway */,
 				D5F2A8C64E1B09D7C3A5F682 /* RunwayTests */,
+				E5A5B7C9818FBA379FEED6F7 /* RunwayWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -166,6 +282,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CB5E0A3D71F9B48E2C6A9D0F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2CA5E7BC23FDFAC8A4FA4A1E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -189,6 +312,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F55A9CB465FFBE7CFAFFE068 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -196,6 +326,11 @@
 			isa = PBXTargetDependency;
 			target = 9B1C5E7A3F0D82C6A4B9E017 /* Runway */;
 			targetProxy = 57A9C1E3B6D28F04A9E5B3C7 /* PBXContainerItemProxy */;
+		};
+		6EA06F1472FA0ED655859E32 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E5A5B7C9818FBA379FEED6F7 /* RunwayWidgets */;
+			targetProxy = 5FE2568AD00F7A45B97FAD17 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -257,6 +392,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Runway/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Runway;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Runway uses Face ID to unlock the app when the app lock is on.";
@@ -295,6 +431,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Runway/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Runway;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Runway uses Face ID to unlock the app when the app lock is on.";
@@ -367,6 +504,72 @@
 			};
 			name = Release;
 		};
+		71F7CCD52A3574612E3F0467 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Runway/Runway.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RunwayWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Runway;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.librandon.runway.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		6522A2939E77EA6EF154259B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Runway/Runway.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RunwayWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Runway;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.librandon.runway.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -393,6 +596,15 @@
 			buildConfigurations = (
 				E7A0B5C3D8F2416A9C3E7B04 /* Debug */,
 				1B8F4E6D2A9C53E7B0F1A8D6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CF1450B3E918A36B6ACB630C /* Build configuration list for PBXNativeTarget "RunwayWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				71F7CCD52A3574612E3F0467 /* Debug */,
+				6522A2939E77EA6EF154259B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -229,6 +229,8 @@ xcodebuild test \
 | `Runway/Setup` | `BudgetDraft`: budget setup parsing, validation, and saving |
 | `Runway/Privacy` | App lock state machine, data export, import validation, and reset |
 | `Runway/Views` | SwiftUI views |
+| `Runway/Widgets` | Widget entries, timelines, views, and the deep link, compiled into the app and the extension |
+| `RunwayWidgets` | The WidgetKit extension: its bundle, configuration, and timeline provider |
 | `RunwayTests` | Unit tests (Swift Testing) |
 
 Money is always stored and calculated as integer cents (`Int`). Values only become `Decimal` for
@@ -250,6 +252,14 @@ in unsigned CI builds, or if the move fails. A failed move is retried on the nex
 has finished, which is recorded in `UserDefaults.standard` as well as next to the store, losing the
 App Group fails the launch with `RunwayStoreError.sharedStoreUnavailable` instead of showing an
 empty app.
+
+The `RunwayWidgets` extension shares source files with the app rather than a framework. A new file
+its code needs must be added to the `Runway` folder's exceptions for the `RunwayWidgets` target in
+`project.pbxproj` (in Xcode, the file's target membership). `Runway/Widgets` holds the code that
+tests and CI screenshots reach through the app module. Widgets open the store read-only, and refresh
+after every save, when the app launches or changes between foreground and background, and at
+midnight. Tapping a widget brings the app forward through `runway://today` and changes nothing else,
+so an open sheet and its draft stay as they were.
 
 ## Device checks
 
@@ -306,6 +316,10 @@ macOS runner. It:
    `today-normal`, `today-over`, and `history-list` also get dark captures at both sizes, named
    `<ticket>-<scenario>-dark.png` and `<ticket>-<scenario>-ax5-dark.png`. The capture step
    restores light appearance and default text size even on failure.
+   Before those captures, `WidgetSnapshotTests` renders the widget views to
+   `480-widget-<layout>-<state>-<appearance>.png` in the same artifact, outside a real widget, so
+   they show the views but not system tinting. The job fails if that test fails or renders fewer
+   than 36 PNGs. The test is skipped in the normal test run.
 7. Uploads the `.xcresult` bundles as an artifact if any step fails.
 
 A newer push to the same pull request cancels the older run. Runs on `main` are never cancelled.
@@ -323,7 +337,8 @@ device only when you share an export yourself. Exported files aren't encrypted.
 **Settings › Privacy & Data** has:
 
 - **App lock:** asks for Face ID, Touch ID, or your passcode when you launch or return to Runway,
-  and hides the app in the app switcher. It's off by default.
+  and hides the app in the app switcher. Home-screen widgets also hide their amounts while the
+  device is locked. It's off by default.
 - **Export:** every record as versioned JSON, and expenses as CSV, through the share sheet. JSON
   dates are seconds since 2001-01-01 UTC, which keeps them exact.
 - **Import:** replaces all data with a JSON export, after a confirmation. The whole file is checked

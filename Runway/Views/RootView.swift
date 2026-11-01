@@ -7,9 +7,7 @@ struct RootView: View {
   /// Opens the requested sample screen on launch. Used for CI screenshots.
   let screenshotScenario: ScreenshotScenario?
 
-  /// Bumped after an import or reset to rebuild every view, closing any open sheets. Views may
-  /// hold models that no longer exist, and reading those can crash.
-  @State private var dataGeneration = 0
+  @State private var state = RootViewState()
   /// Stays the same across updates, so `dataDidReplace` compares equal and readers don't update.
   /// An older copy of the action still works, since it writes to the same `@State` storage.
   @State private var dataReplaceActionID = UUID()
@@ -21,11 +19,12 @@ struct RootView: View {
 
   var body: some View {
     RootContent(screenshotScenario: screenshotScenario)
-      .id(dataGeneration)
+      .id(state.dataGeneration)
       .environment(
         \.dataDidReplace,
-        DataReplaceAction(id: dataReplaceActionID) { dataGeneration += 1 }
+        DataReplaceAction(id: dataReplaceActionID) { state.dataDidReplace() }
       )
+      .onOpenURL { state.open($0) }
   }
 }
 
