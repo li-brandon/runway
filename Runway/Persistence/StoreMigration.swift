@@ -4,7 +4,7 @@ import os
 /// Moves the store once from its old location to a new one. Run it before any container opens
 /// either location.
 ///
-/// The old store is counted from a scratch copy, then copied, and the copy must hold exactly the
+/// The old store is opened read-only and counted, then copied, and the copy must hold exactly the
 /// same counts. Only then is a marker written next to the new store and completion recorded in
 /// `defaults`, which stay readable without the App Group. Without either, the old store stays the
 /// source of truth, so a failed or interrupted run just starts over. With them the new store is the
@@ -126,6 +126,7 @@ struct StoreMigration {
     let migratedStore: MigratedStore
     do {
       let counts = try countOldStore(oldStoreURL)
+      // Stamped after the read-only open has closed, so nothing it did can look like a later write.
       migratedStore = MigratedStore(
         store: try Self.stamp(of: oldStoreURL),
         wal: try? Self.stamp(of: Self.walURL(of: oldStoreURL)),
@@ -152,7 +153,7 @@ struct StoreMigration {
     return .migrated
   }
 
-  static func walURL(of storeURL: URL) -> URL {
+  private static func walURL(of storeURL: URL) -> URL {
     storeURL.deletingLastPathComponent().appending(path: "\(storeURL.lastPathComponent)-wal")
   }
 

@@ -133,36 +133,10 @@ enum RunwayModelContainer {
     try autoreleasepool { try counts(in: ModelContext(try make(url: url))) }
   }
 
-  /// Per-model row counts of the existing store at `url`, which is never opened. They come from a
-  /// scratch copy, because a read-only container can't open a store that a clean close left without
-  /// sidecars, and the migration would then fail on every launch.
+  /// Per-model row counts of the existing store at `url`, opened read-only. The pool drains Core
+  /// Data's autoreleased references, as in `storeCounts(at:)`.
   static func readOnlyStoreCounts(at url: URL) throws -> [String: Int] {
-    try withScratchCopy(of: url) { try storeCounts(at: $0) }
-  }
-
-  /// Calls `body` with a throwaway copy of the store at `url`, safe to open read-write. Throws
-  /// `storeNotReady` if there's no store.
-  ///
-  /// `-shm` isn't copied, since SQLite rebuilds it from the `-wal`. The `-wal` is copied first so
-  /// that a connection closing during the copy can't lose data: either the `-wal` is still copied,
-  /// or it's gone because its contents reached the store file. Failing to copy it for any other
-  /// reason can only make the counts differ, which fails the migration safely.
-  static func withScratchCopy<T>(of url: URL, _ body: (URL) throws -> T) throws -> T {
-    let fileManager = FileManager.default
-    guard fileManager.fileExists(atPath: url.path) else {
-      throw RunwayStoreError.storeNotReady
-    }
-    let directory = fileManager.temporaryDirectory
-      .appending(path: "RunwayStoreCopy-\(UUID().uuidString)")
-    try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? fileManager.removeItem(at: directory) }
-    let copy = directory.appending(path: url.lastPathComponent)
-    try? fileManager.copyItem(
-      at: StoreMigration.walURL(of: url),
-      to: StoreMigration.walURL(of: copy)
-    )
-    try fileManager.copyItem(at: url, to: copy)
-    return try body(copy)
+    try autoreleasepool { try counts(in: ModelContext(try makeReadOnly(url: url))) }
   }
 
   private static func counts(in context: ModelContext) throws -> [String: Int] {

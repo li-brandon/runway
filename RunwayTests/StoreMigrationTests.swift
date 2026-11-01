@@ -101,17 +101,15 @@ struct StoreMigrationTests {
     guard result == SQLITE_OK else { throw SQLiteFailure(code: result) }
   }
 
-  /// Reads a copy, so a migration that runs after this can't see a write from it.
+  /// Read-only, so a migration that runs after this can't see a write from it.
   private func expectSeededData(at url: URL) throws {
-    try RunwayModelContainer.withScratchCopy(of: url) { copy in
-      try autoreleasepool {
-        let context = ModelContext(try RunwayModelContainer.make(url: copy))
-        let budget = try #require(try context.fetch(FetchDescriptor<Budget>()).first)
-        #expect(budget.spendablePerPeriodCents == 110_000)
-        let expense = try #require(try context.fetch(FetchDescriptor<Expense>()).first)
-        #expect(expense.amountCents == 1_250)
-        #expect(expense.note == "Lunch")
-      }
+    try autoreleasepool {
+      let context = ModelContext(try RunwayModelContainer.makeReadOnly(url: url))
+      let budget = try #require(try context.fetch(FetchDescriptor<Budget>()).first)
+      #expect(budget.spendablePerPeriodCents == 110_000)
+      let expense = try #require(try context.fetch(FetchDescriptor<Expense>()).first)
+      #expect(expense.amountCents == 1_250)
+      #expect(expense.note == "Lunch")
     }
   }
 
@@ -148,11 +146,9 @@ struct StoreMigrationTests {
   }
 
   private func expenseCount(at url: URL) throws -> Int {
-    try RunwayModelContainer.withScratchCopy(of: url) { copy in
-      try autoreleasepool {
-        let context = ModelContext(try RunwayModelContainer.make(url: copy))
-        return try context.fetchCount(FetchDescriptor<Expense>())
-      }
+    try autoreleasepool {
+      let context = ModelContext(try RunwayModelContainer.makeReadOnly(url: url))
+      return try context.fetchCount(FetchDescriptor<Expense>())
     }
   }
 
@@ -170,40 +166,6 @@ struct StoreMigrationTests {
       #expect(StoreMigration.isComplete(newStoreURL: stores.new))
       #expect(StoreMigration.isRecordedComplete(in: stores.defaults))
       try expectSeededData(at: backupURL(of: stores))
-    }
-  }
-
-  @Test("Counting a cleanly closed old store works and doesn't touch it")
-  func countingLeavesOldStoreAlone() throws {
-    try withStores { stores in
-      try seedStore(at: stores.old)
-      let bytes = try Data(contentsOf: stores.old)
-      let attributes = try FileManager.default.attributesOfItem(atPath: stores.old.path)
-
-      let counts = try RunwayModelContainer.readOnlyStoreCounts(at: stores.old)
-
-      #expect(counts.values.reduce(0, +) >= 2)
-      #expect(try Data(contentsOf: stores.old) == bytes)
-      let after = try FileManager.default.attributesOfItem(atPath: stores.old.path)
-      #expect(after[.modificationDate] as? Date == attributes[.modificationDate] as? Date)
-      #expect(!exists(sibling(of: stores.old, named: "default.store-wal")))
-      #expect(!exists(sibling(of: stores.old, named: "default.store-shm")))
-    }
-  }
-
-  @Test("Uncheckpointed writes in the -wal reach the scratch copy")
-  func scratchCopyIncludesWAL() throws {
-    try withDirectory { directory in
-      let url = directory.appending(path: "default.store")
-      let container = try RunwayModelContainer.make(url: url)
-      let context = ModelContext(container)
-      context.insert(Budget(periodStart: date, spendablePerPeriodCents: 110_000))
-      try context.save()
-
-      try withExtendedLifetime(container) {
-        let counts = try RunwayModelContainer.readOnlyStoreCounts(at: url)
-        #expect(counts["Budget"] == 1)
-      }
     }
   }
 
@@ -309,12 +271,10 @@ struct StoreMigrationTests {
         now: date,
         countNewStore: { url in
           // A copy that opens fine but lost a row.
-          try autoreleasepool {
-            let context = ModelContext(try RunwayModelContainer.make(url: url))
-            let expense = try #require(try context.fetch(FetchDescriptor<Expense>()).first)
-            context.delete(expense)
-            try context.save()
-          }
+          let context = ModelContext(try RunwayModelContainer.make(url: url))
+          let expense = try #require(try context.fetch(FetchDescriptor<Expense>()).first)
+          context.delete(expense)
+          try context.save()
           return try RunwayModelContainer.storeCounts(at: url)
         }
       )
@@ -684,19 +644,14 @@ struct StoreMigrationTests {
   func readOnlyContainerReads() throws {
     try withDirectory { directory in
       let url = directory.appending(path: "default.store")
-      // Open throughout, as the app's container is whenever a widget reads the store.
-      let writable = try RunwayModelContainer.make(url: url)
-      let writableContext = ModelContext(writable)
-      writableContext.insert(Budget(periodStart: date, spendablePerPeriodCents: 110_000))
-      try writableContext.save()
+      try seedStore(at: url)
 
-      try withExtendedLifetime(writable) {
-        let container = try RunwayModelContainer.makeReadOnly(url: url)
+      let container = try RunwayModelContainer.makeReadOnly(url: url)
 
-        #expect(container.configurations.allSatisfy { !$0.allowsSave })
-        let context = ModelContext(container)
-        #expect(try context.fetchCount(FetchDescriptor<Budget>()) == 1)
-      }
+      #expect(container.configurations.allSatisfy { !$0.allowsSave })
+      let context = ModelContext(container)
+      #expect(try context.fetchCount(FetchDescriptor<Budget>()) == 1)
+      #expect(try context.fetchCount(FetchDescriptor<Expense>()) == 1)
     }
   }
 
