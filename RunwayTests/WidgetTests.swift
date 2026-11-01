@@ -423,22 +423,53 @@ struct WidgetIntegrationTests {
     #expect(AppDeepLink(url: otherScheme) == nil)
   }
 
-  @Test("Opening a link doesn't rebuild the root, so an open editor keeps its draft")
-  func openingLinkKeepsOpenSheets() throws {
+  @Test("The today link goes from History back to Today")
+  func openingLinkLeavesHistory() throws {
     let uppercase = try #require(URL(string: "RUNWAY://TODAY"))
+    for url in [AppDeepLink.todayURL, uppercase] {
+      var navigation = TodayNavigation(showsHistory: true)
+      navigation.open(url)
+      #expect(navigation == TodayNavigation())
+    }
+  }
+
+  @Test("Opening a link leaves an open sheet where it is, so an editor keeps its draft")
+  func openingLinkKeepsOpenSheets() {
+    let open = [
+      TodayNavigation(todayPresentsSheet: true),
+      TodayNavigation(showsHistory: true, todayPresentsSheet: true),
+      TodayNavigation(showsHistory: true, historyPresentsSheet: true),
+    ]
+    for before in open {
+      var navigation = before
+      navigation.open(AppDeepLink.todayURL)
+      #expect(navigation == before)
+    }
+  }
+
+  @Test("The today link on Today changes nothing")
+  func openingLinkOnToday() {
+    var navigation = TodayNavigation()
+    navigation.open(AppDeepLink.todayURL)
+    #expect(navigation == TodayNavigation())
+  }
+
+  @Test("An unknown link changes nothing")
+  func openingUnknownLink() throws {
     let otherScreen = try #require(URL(string: "runway://history"))
+    let otherScheme = try #require(URL(string: "https://today"))
+    for url in [otherScreen, otherScheme] {
+      var navigation = TodayNavigation(showsHistory: true)
+      navigation.open(url)
+      #expect(navigation == TodayNavigation(showsHistory: true))
+    }
+  }
+
+  @Test("An import or reset changes the generation, which is what closes sheets")
+  func dataReplaceChangesGeneration() {
     var state = RootViewState()
     state.dataDidReplace()
-    let before = state
-
-    for url in [AppDeepLink.todayURL, uppercase, otherScreen] {
-      state.open(url)
-      #expect(state == before)
-    }
-
-    // A rebuild does still change the generation, which is what closes sheets.
-    state.dataDidReplace()
-    #expect(state.dataGeneration == before.dataGeneration + 1)
+    #expect(state.dataGeneration == 1)
   }
 
   @Test("The app registers the scheme the widgets link to")
