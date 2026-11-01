@@ -366,3 +366,10 @@ enum BillStatus: Equatable, Sendable {
   case paid(cents: Int)
   case skipped
 }
+
+extension BillPayment {
+  /// What the period gets back from the bill while this mark stands.
+  var creditCents: Int {
+    isCleared ? 0 : plannedCents - paidCents
+  }
+}
