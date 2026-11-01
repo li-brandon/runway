@@ -93,8 +93,7 @@ enum WidgetTimelineBuilder {
     }
   }
 
-  /// One entry for now and one for the next midnight, when today's figures roll over, then a
-  /// reload.
+  /// Loads what `WidgetTimelinePlanner` needs from the store.
   private static func plan(
     in context: ModelContext,
     amountsArePrivate: Bool,
@@ -114,15 +113,11 @@ enum WidgetTimelineBuilder {
     budget.adoptTimeZone(of: calendar)
     let snapshot = BudgetSnapshot(budget)
     let expenses = try context.fetch(FetchDescriptor<Expense>()).map { ExpenseSnapshot($0) }
-    let engine = AllowanceEngine(calendar: calendar)
-    let entries = [now, midnight].map { date in
-      let result = engine.currentAllowance(budget: snapshot, expenses: expenses, now: date)
-      return RunwayWidgetEntry(
-        date: date,
-        content: .allowance(WidgetAllowance(result)),
-        amountsArePrivate: amountsArePrivate
-      )
-    }
-    return WidgetTimelinePlan(entries: entries, reloadDate: midnight)
+    return WidgetTimelinePlanner(calendar: calendar).plan(
+      budget: snapshot,
+      expenses: expenses,
+      amountsArePrivate: amountsArePrivate,
+      now: now
+    )
   }
 }

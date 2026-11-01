@@ -257,8 +257,8 @@ The `RunwayWidgets` extension shares source files with the app rather than a fra
 its code needs must be added to the `Runway` folder's exceptions for the `RunwayWidgets` target in
 `project.pbxproj` (in Xcode, the file's target membership). `Runway/Widgets` holds the code that
 tests and CI screenshots reach through the app module. Widgets open the store read-only, and refresh
-after every save, when the app launches or changes between foreground and background, and at
-midnight. Tapping a widget opens `runway://today`, which brings the app forward and goes back from
+after every save, when the app launches or changes between foreground and background, when the
+clock or time zone changes while the app is running, and at midnight. Tapping a widget opens `runway://today`, which brings the app forward and goes back from
 History to Today. If a sheet is open, the app stays on the same screen, so the sheet and its draft
 stay as they were.
 
@@ -274,6 +274,10 @@ CI can't run these, so check them on a real iPhone:
 - **Downgrade and upgrade keep all data:** after that upgrade, install the older build, add data,
   then update again. Check that the data from before the downgrade is all there, and that the old
   location still has the store the older build wrote.
+- **Widget stays current (Brandon):** with a budget set up and the Left to Spend widget on the home
+  screen, log an expense and check the widget's number changes as soon as you're back on the home
+  screen. Note the number before midnight, leave the app closed, and check the number and days left
+  have rolled over to the new day after midnight.
 
 ## Code style
 
