@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import SwiftUI
 import Testing
@@ -145,7 +146,10 @@ struct WidgetRedactionRenderTests {
     let idealImage = try #require(ideal.uiImage)
     let framed = ImageRenderer(content: themed.frame(width: frame.width, height: frame.height))
     framed.scale = 3
-    let framedData = try #require(framed.uiImage?.pngData())
+    // Raw pixels rather than PNG: `pngData()` can return nil for renderer-backed images.
+    let framedImage = try #require(framed.cgImage)
+    let pixels = try #require(framedImage.dataProvider?.data)
+    let framedData = pixels as Data
     return Rendering(idealSize: idealImage.size, framedImage: framedData)
   }
 
