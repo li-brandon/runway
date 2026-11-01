@@ -268,6 +268,46 @@ struct LockScreenWidgetTests {
     #expect(text == "$123,456.78 today, 1 day left")
   }
 
+  @Test("VoiceOver gets the full amount in the rectangular widget")
+  func rectangularAccessibilityText() {
+    let text = LockScreenText.rectangularAccessibility(
+      allowance(today: 12_345_678),
+      locale: Money.fixedLocale
+    )
+    #expect(text == "Left to spend today, $123,456.78")
+  }
+
+  @Test("Unredacted, VoiceOver reads the text with its figures")
+  func unredactedAccessibilityLabel() {
+    let figures = allowance(today: 12_345_678, daysLeft: 9)
+    let texts = [
+      LockScreenText.accessibility(figures, locale: Money.fixedLocale),
+      LockScreenText.rectangularAccessibility(figures, locale: Money.fixedLocale),
+    ]
+    for text in texts {
+      let label = LockScreenText.accessibilityLabel(text, isPrivate: false)
+      #expect(label == text)
+      #expect(label.contains("$123,456.78"))
+    }
+  }
+
+  @Test("Redacted, VoiceOver reads a label with no figures")
+  func redactedAccessibilityLabel() {
+    for cents in [0, 4_250, -12_500, 12_345_678] {
+      let figures = allowance(today: cents, daysLeft: 9)
+      let texts = [
+        LockScreenText.accessibility(figures, locale: Money.fixedLocale),
+        LockScreenText.rectangularAccessibility(figures, locale: Money.fixedLocale),
+      ]
+      for text in texts {
+        let label = LockScreenText.accessibilityLabel(text, isPrivate: true)
+        #expect(label == "Left to spend today")
+        #expect(!label.contains("$"))
+        #expect(!label.contains { $0.isNumber })
+      }
+    }
+  }
+
   @Test("The rectangular days text is singular only for one day")
   func rectangularDaysLeft() {
     #expect(LockScreenText.daysLeft(0) == "0 days left")

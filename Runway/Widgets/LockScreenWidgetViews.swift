@@ -44,6 +44,20 @@ enum LockScreenText {
     let amount = Money.format(cents: allowance.remainingTodayCents, locale: locale)
     return "\(amount) today, \(daysLeft(allowance.daysLeft))"
   }
+
+  /// What VoiceOver reads for the rectangular widget's amount, with the full amount.
+  static func rectangularAccessibility(
+    _ allowance: WidgetAllowance,
+    locale: Locale = .autoupdatingCurrent
+  ) -> String {
+    "Left to spend today, \(Money.format(cents: allowance.remainingTodayCents, locale: locale))"
+  }
+
+  /// What VoiceOver reads given the `text` with the figures. Redaction only covers what's drawn, so
+  /// a redacted view needs a label without them.
+  static func accessibilityLabel(_ text: String, isPrivate: Bool) -> String {
+    isPrivate ? "Left to spend today" : text
+  }
 }
 
 /// A lock-screen widget's content. Takes everything as parameters, so CI can render it outside a
@@ -67,6 +81,12 @@ struct LockScreenWidgetContent: View {
 
   let entry: RunwayWidgetEntry
   let family: Family
+
+  @Environment(\.redactionReasons) private var redactionReasons
+
+  private var isRedacted: Bool {
+    redactionReasons.contains(.privacy)
+  }
 
   var body: some View {
     Group {
@@ -97,7 +117,12 @@ struct LockScreenWidgetContent: View {
         inlineText(LockScreenText.compactInline(allowance))
       }
       .accessibilityElement(children: .ignore)
-      .accessibilityLabel(LockScreenText.accessibility(allowance))
+      .accessibilityLabel(
+        LockScreenText.accessibilityLabel(
+          LockScreenText.accessibility(allowance),
+          isPrivate: isRedacted
+        )
+      )
     }
   }
 
@@ -111,7 +136,10 @@ struct LockScreenWidgetContent: View {
       AmountText(
         cents: allowance.remainingTodayCents,
         steps: LockScreenText.rectangularAmountSteps,
-        accessibilityTitle: "Left to spend today"
+        accessibilityOverride: LockScreenText.accessibilityLabel(
+          LockScreenText.rectangularAccessibility(allowance),
+          isPrivate: isRedacted
+        )
       )
       .widgetAccentable()
       Text(LockScreenText.daysLeft(allowance.daysLeft))
