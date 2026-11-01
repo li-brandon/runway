@@ -258,7 +258,8 @@ its code needs must be added to the `Runway` folder's exceptions for the `Runway
 `project.pbxproj` (in Xcode, the file's target membership). `Runway/Widgets` holds the code that
 tests and CI screenshots reach through the app module. Widgets open the store read-only, and refresh
 after every save, when the app launches or changes between foreground and background, and at
-midnight.
+midnight. Tapping a widget brings the app forward through `runway://today` and changes nothing else,
+so an open sheet and its draft stay as they were.
 
 ## Device checks
 
@@ -317,8 +318,8 @@ macOS runner. It:
    restores light appearance and default text size even on failure.
    Before those captures, `WidgetSnapshotTests` renders the widget views to
    `480-widget-<layout>-<state>-<appearance>.png` in the same artifact, outside a real widget, so
-   they show the views but not system tinting. A failure there is a warning and doesn't fail the
-   job. The test is skipped in the normal test run.
+   they show the views but not system tinting. The job fails if that test fails or renders fewer
+   than 36 PNGs. The test is skipped in the normal test run.
 7. Uploads the `.xcresult` bundles as an artifact if any step fails.
 
 A newer push to the same pull request cancels the older run. Runs on `main` are never cancelled.

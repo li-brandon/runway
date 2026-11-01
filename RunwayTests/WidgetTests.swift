@@ -281,6 +281,24 @@ struct WidgetIntegrationTests {
     #expect(AppDeepLink(url: otherScheme) == nil)
   }
 
+  @Test("Opening a link doesn't rebuild the root, so an open editor keeps its draft")
+  func openingLinkKeepsOpenSheets() throws {
+    let uppercase = try #require(URL(string: "RUNWAY://TODAY"))
+    let otherScreen = try #require(URL(string: "runway://history"))
+    var state = RootViewState()
+    state.dataDidReplace()
+    let before = state
+
+    for url in [AppDeepLink.todayURL, uppercase, otherScreen] {
+      state.open(url)
+      #expect(state == before)
+    }
+
+    // A rebuild does still change the generation, which is what closes sheets.
+    state.dataDidReplace()
+    #expect(state.dataGeneration == before.dataGeneration + 1)
+  }
+
   @Test("The app registers the scheme the widgets link to")
   func urlSchemeRegistered() throws {
     let types = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]]

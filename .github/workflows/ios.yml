@@ -280,8 +280,8 @@ jobs:
           }
           mkdir -p screenshots
 
-          # Widgets can't be launched on their own, so a test renders their views to PNGs. A problem
-          # here is a warning, since it says nothing about the app or its other screenshots.
+          # Widgets can't be launched on their own, so a test renders their views to PNGs. A failed
+          # test, or fewer PNGs than it should write, fails the job.
           if ! TEST_RUNNER_RUNWAY_WIDGET_SCREENSHOTS_DIR="$PWD/screenshots" xcodebuild test-without-building \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
@@ -293,12 +293,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=''; then
-            echo "::warning title=Widget screenshots::The widget snapshot test failed"
+            echo "::error title=Widget screenshots::The widget snapshot test failed"
+            exit 1
           fi
           WIDGET_SHOTS="$(find screenshots -name '480-widget-*.png' | wc -l | tr -d ' ')"
           echo "Widget screenshots: $WIDGET_SHOTS"
-          if [ "$WIDGET_SHOTS" -eq 0 ]; then
-            echo "::warning title=Widget screenshots::No widget screenshots were rendered"
+          if [ "$WIDGET_SHOTS" -lt 36 ]; then
+            echo "::error title=Widget screenshots::Expected at least 36 widget screenshots but rendered $WIDGET_SHOTS"
+            exit 1
           fi
 
           # Screenshots run on a dedicated narrow (375pt) iPhone so layout problems show up.
