@@ -2,7 +2,6 @@ import Combine
 import Foundation
 import SwiftData
 import SwiftUI
-import WidgetKit
 
 @main
 struct RunwayApp: App {
@@ -37,11 +36,7 @@ struct RunwayApp: App {
       AppLockGate(lock: appLock) {
         RootView(screenshotScenario: launchOptions.screenshotScenario)
       }
-      // Every save posts this, whichever screen or context made it.
-      .onReceive(
-        NotificationCenter.default.publisher(for: ModelContext.didSave)
-          .receive(on: RunLoop.main)
-      ) { _ in
+      .onReceive(WidgetReloader.triggers().receive(on: RunLoop.main)) { _ in
         reloadWidgets()
       }
       // Launching can finish moving the store, which a waiting widget needs to hear about.
@@ -56,6 +51,6 @@ struct RunwayApp: App {
   /// In-memory launches hold sample data that widgets never see.
   private func reloadWidgets() {
     guard !launchOptions.usesInMemoryStore else { return }
-    WidgetCenter.shared.reloadAllTimelines()
+    WidgetReloader.reload()
   }
 }
