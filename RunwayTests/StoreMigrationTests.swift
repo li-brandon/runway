@@ -456,7 +456,8 @@ struct StoreMigrationTests {
         }
       )
 
-      #expect(try run.run() == .nothingToMigrate)
+      let result = try run.run()
+      #expect(result == .nothingToMigrate)
 
       #expect(!exists(stores.new))
       #expect(StoreMigration.isComplete(newStoreURL: stores.new))
