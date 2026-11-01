@@ -21,14 +21,22 @@ struct RootViewState: Equatable, Sendable {
   mutating func dataDidReplace() {
     dataGeneration += 1
   }
+}
 
-  /// A widget's link only has to bring the app forward, since the root is already Today. It must
-  /// not rebuild: that would close an open editor and lose its draft without asking.
+/// What Today's stack shows. `ContentView` owns it below `RootView`'s `id`, so an import or reset
+/// starts it over along with the sheets it describes.
+struct TodayNavigation: Equatable, Sendable {
+  var showsHistory = false
+  var todayPresentsSheet = false
+  var historyPresentsSheet = false
+
+  /// A widget's link goes back to Today, unless a sheet is open: leaving History would close its
+  /// editor and lose the draft without asking.
   mutating func open(_ url: URL) {
-    switch AppDeepLink(url: url) {
-    case .today, nil:
-      break
+    guard AppDeepLink(url: url) == .today, !todayPresentsSheet, !historyPresentsSheet else {
+      return
     }
+    showsHistory = false
   }
 }
 

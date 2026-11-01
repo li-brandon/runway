@@ -24,7 +24,6 @@ struct RootView: View {
         \.dataDidReplace,
         DataReplaceAction(id: dataReplaceActionID) { state.dataDidReplace() }
       )
-      .onOpenURL { state.open($0) }
   }
 }
 

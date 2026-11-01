@@ -258,8 +258,9 @@ its code needs must be added to the `Runway` folder's exceptions for the `Runway
 `project.pbxproj` (in Xcode, the file's target membership). `Runway/Widgets` holds the code that
 tests and CI screenshots reach through the app module. Widgets open the store read-only, and refresh
 after every save, when the app launches or changes between foreground and background, and at
-midnight. Tapping a widget brings the app forward through `runway://today` and changes nothing else,
-so an open sheet and its draft stay as they were.
+midnight. Tapping a widget opens `runway://today`, which brings the app forward and goes back from
+History to Today. If a sheet is open, the app stays on the same screen, so the sheet and its draft
+stay as they were.
 
 ## Device checks
 
