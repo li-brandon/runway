@@ -5,6 +5,7 @@ import Testing
 @testable import Runway
 
 /// Moving the store into the App Group container, on real on-disk stores in a temp directory.
+@Suite(.serialized)
 struct StoreMigrationTests {
   private struct VerifyFailure: Error {}
 
@@ -63,15 +64,45 @@ struct StoreMigrationTests {
 
   /// Saves a budget and an expense with their own container, which is released on return.
   private func seedStore(at url: URL) throws {
-    let context = ModelContext(try RunwayModelContainer.make(url: url))
-    context.insert(Budget(periodStart: date, spendablePerPeriodCents: 110_000))
-    try CategoryService(context: context).createExpense(
-      amountCents: 1_250,
-      note: "Lunch",
-      date: date,
-      now: date
-    )
-    try context.save()
+    try autoreleasepool {
+      let context = ModelContext(try RunwayModelContainer.make(url: url))
+      context.insert(Budget(periodStart: date, spendablePerPeriodCents: 110_000))
+      try CategoryService(context: context).createExpense(
+        amountCents: 1_250,
+        note: "Lunch",
+        date: date,
+        now: date
+      )
+      try context.save()
+    }
+    waitUntilSettled(url)
+  }
+
+  /// SQLite can checkpoint or close a store a little after its container goes away. Waits until the
+  /// store and its sidecars stop changing, so later size, date, and byte checks see final files.
+  private func waitUntilSettled(_ url: URL) {
+    func stamp() -> [String] {
+      ["", "-wal", "-shm"].map { suffix in
+        let path = url.path + suffix
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        let size = (attributes?[.size] as? NSNumber)?.int64Value ?? -1
+        let date = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? -1
+        return "\(size)@\(date)"
+      }
+    }
+    var last = stamp()
+    var stableSince = Date()
+    let deadline = Date().addingTimeInterval(5)
+    while Date() < deadline {
+      Thread.sleep(forTimeInterval: 0.05)
+      let current = stamp()
+      if current != last {
+        last = current
+        stableSince = Date()
+      } else if Date().timeIntervalSince(stableSince) >= 0.5 {
+        return
+      }
+    }
   }
 
   private func expectSeededData(at url: URL) throws {
@@ -102,14 +133,17 @@ struct StoreMigrationTests {
   }
 
   private func addExpense(at url: URL, note: String) throws {
-    let context = ModelContext(try RunwayModelContainer.make(url: url))
-    try CategoryService(context: context).createExpense(
-      amountCents: 500,
-      note: note,
-      date: date,
-      now: date
-    )
-    try context.save()
+    try autoreleasepool {
+      let context = ModelContext(try RunwayModelContainer.make(url: url))
+      try CategoryService(context: context).createExpense(
+        amountCents: 500,
+        note: note,
+        date: date,
+        now: date
+      )
+      try context.save()
+    }
+    waitUntilSettled(url)
   }
 
   private func expenseCount(at url: URL) throws -> Int {
