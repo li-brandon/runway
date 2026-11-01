@@ -70,25 +70,37 @@ final class AppLockController {
 
   private let authenticator: any AppLockAuthenticating
   private let defaults: UserDefaults?
+  /// Where widgets read the setting.
+  private let sharedDefaults: UserDefaults?
   private var promptsWhenActive: Bool
   /// Identifies the latest prompt, so a result that arrives after going to the background, which
   /// has already locked again, can't unlock the app.
   private var attempt = 0
 
   /// Reads the setting from `defaults`, and starts locked if the lock is on.
-  init(authenticator: any AppLockAuthenticating, defaults: UserDefaults) {
+  /// Shares it with widgets too, as a lock turned on before there were widgets hasn't been shared.
+  init(
+    authenticator: any AppLockAuthenticating,
+    defaults: UserDefaults,
+    sharedDefaults: UserDefaults? = nil
+  ) {
     let isEnabled = defaults.bool(forKey: Self.enabledKey)
     self.authenticator = authenticator
     self.defaults = defaults
+    self.sharedDefaults = sharedDefaults
     self.isEnabled = isEnabled
     state = isEnabled ? .locked : .unlocked
     promptsWhenActive = isEnabled
+    if let sharedDefaults {
+      WidgetPrivacy.share(appLockEnabled: isEnabled, in: sharedDefaults)
+    }
   }
 
   /// Keeps the setting in memory only.
   init(authenticator: any AppLockAuthenticating, isEnabled: Bool, isLocked: Bool) {
     self.authenticator = authenticator
     defaults = nil
+    sharedDefaults = nil
     self.isEnabled = isEnabled
     state = isLocked ? .locked : .unlocked
     promptsWhenActive = isLocked
@@ -101,7 +113,11 @@ final class AppLockController {
     defaults: UserDefaults = .standard
   ) -> AppLockController {
     guard options.usesInMemoryStore else {
-      return AppLockController(authenticator: DeviceAuthenticator(), defaults: defaults)
+      return AppLockController(
+        authenticator: DeviceAuthenticator(),
+        defaults: defaults,
+        sharedDefaults: WidgetPrivacy.sharedDefaults
+      )
     }
     return AppLockController(
       authenticator: NoPromptAuthenticator(),
@@ -182,5 +198,8 @@ final class AppLockController {
   private func store(_ enabled: Bool) {
     isEnabled = enabled
     defaults?.set(enabled, forKey: Self.enabledKey)
+    if let sharedDefaults {
+      WidgetPrivacy.share(appLockEnabled: enabled, in: sharedDefaults)
+    }
   }
 }
