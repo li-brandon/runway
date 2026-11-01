@@ -21,8 +21,10 @@ enum LockScreenText {
   /// always abbreviated and comes first.
   static func inline(
     _ allowance: WidgetAllowance,
+    isRedacted: Bool = false,
     locale: Locale = .autoupdatingCurrent
   ) -> String {
+    if isRedacted { return "\(AmountCandidate.redactedText) today · 00 days left" }
     let amount = Money.abbreviated(cents: allowance.remainingTodayCents, locale: locale)
     return "\(amount) today · \(daysLeft(allowance.daysLeft))"
   }
@@ -30,8 +32,10 @@ enum LockScreenText {
   /// What the inline widget falls back to when `inline` doesn't fit.
   static func compactInline(
     _ allowance: WidgetAllowance,
+    isRedacted: Bool = false,
     locale: Locale = .autoupdatingCurrent
   ) -> String {
+    if isRedacted { return "\(AmountCandidate.redactedText) · 00d" }
     let amount = Money.abbreviated(cents: allowance.remainingTodayCents, locale: locale)
     return "\(amount) · \(allowance.daysLeft)d"
   }
@@ -86,6 +90,17 @@ enum LockScreenText {
     accessibilityLabel(status.title, isPrivate: isPrivate, generic: "Budget status")
   }
 
+  /// The status label's text. Redaction draws a placeholder as wide as its text, so the real title
+  /// would show the status.
+  static func statusTitle(_ status: TodayStatus, isRedacted: Bool) -> String {
+    isRedacted ? "Budget status" : status.title
+  }
+
+  /// The status label's symbol. Symbols differ in width too, and redaction keeps their shape.
+  static func statusSymbol(_ status: TodayStatus, isRedacted: Bool) -> String {
+    isRedacted ? "circle" : status.symbol
+  }
+
   /// The color of the amount and status label. Redaction keeps a view's color, so a tinted
   /// placeholder would show the status.
   static func statusColor(
@@ -125,6 +140,11 @@ struct LockScreenWidgetContent: View {
     redactionReasons.contains(.privacy)
   }
 
+  /// Only private views get redacted, so any other would draw the fixed text as if it were real.
+  private var showsFixedText: Bool {
+    isRedacted && entry.amountsArePrivate
+  }
+
   var body: some View {
     Group {
       switch entry.content {
@@ -150,8 +170,8 @@ struct LockScreenWidgetContent: View {
       rectangular(allowance)
     case .inline:
       ViewThatFits(in: .horizontal) {
-        inlineText(LockScreenText.inline(allowance))
-        inlineText(LockScreenText.compactInline(allowance))
+        inlineText(LockScreenText.inline(allowance, isRedacted: showsFixedText))
+        inlineText(LockScreenText.compactInline(allowance, isRedacted: showsFixedText))
       }
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(
@@ -176,7 +196,8 @@ struct LockScreenWidgetContent: View {
         accessibilityOverride: LockScreenText.accessibilityLabel(
           LockScreenText.rectangularAccessibility(allowance),
           isPrivate: isRedacted
-        )
+        ),
+        isRedacted: showsFixedText
       )
       .widgetAccentable()
       Text(LockScreenText.daysLeft(allowance.daysLeft))
