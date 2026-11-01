@@ -259,7 +259,8 @@ its code needs must be added to the `Runway` folder's exceptions for the `Runway
 tests and CI screenshots reach through the app module. Widgets open the store read-only, and refresh
 after every save, when the app launches or changes between foreground and background, and at
 midnight. Tapping a widget brings the app forward through `runway://today` and changes nothing else,
-so an open sheet and its draft stay as they were.
+so an open sheet and its draft stay as they were. The same widget also offers the lock-screen
+families: a gauge of the period's days, today's amount with days left, and one line of text.
 
 ## Device checks
 
@@ -273,6 +274,9 @@ CI can't run these, so check them on a real iPhone:
 - **Downgrade and upgrade keep all data:** after that upgrade, install the older build, add data,
   then update again. Check that the data from before the downgrade is all there, and that the old
   location still has the store the older build wrote.
+- **Lock-screen widgets:** add all three to the lock screen with App lock on, lock the device, and
+  check that the figures and the gauge's ring are hidden, and that the inline text isn't truncated.
+  Unlock and tap each one to check that it opens Today.
 
 ## Code style
 
@@ -319,7 +323,9 @@ macOS runner. It:
    Before those captures, `WidgetSnapshotTests` renders the widget views to
    `480-widget-<layout>-<state>-<appearance>.png` in the same artifact, outside a real widget, so
    they show the views but not system tinting. The job fails if that test fails or renders fewer
-   than 36 PNGs. The test is skipped in the normal test run.
+   than 36 PNGs. It also renders the lock-screen families to
+   `481-lockscreen-<family>-<state>-<appearance>.png`, and the job fails on fewer than 54 of those.
+   The test is skipped in the normal test run.
 7. Uploads the `.xcresult` bundles as an artifact if any step fails.
 
 A newer push to the same pull request cancels the older run. Runs on `main` are never cancelled.
@@ -338,7 +344,7 @@ device only when you share an export yourself. Exported files aren't encrypted.
 
 - **App lock:** asks for Face ID, Touch ID, or your passcode when you launch or return to Runway,
   and hides the app in the app switcher. Home-screen widgets also hide their amounts while the
-  device is locked. It's off by default.
+  device is locked, and lock-screen widgets hide their amounts and days left. It's off by default.
 - **Export:** every record as versioned JSON, and expenses as CSV, through the share sheet. JSON
   dates are seconds since 2001-01-01 UTC, which keeps them exact.
 - **Import:** replaces all data with a JSON export, after a confirmation. The whole file is checked

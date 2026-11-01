@@ -46,6 +46,7 @@ struct WidgetSnapshotTests {
         remainingTodayCents: today,
         remainingPeriodCents: period,
         daysLeft: days,
+        periodDays: 14,
         status: status
       )
     )
@@ -122,6 +123,88 @@ struct WidgetSnapshotTests {
         layout: layout,
         scheme: .light,
         name: "locked-light",
+        to: directory
+      )
+    }
+  }
+
+  /// About the smallest each family gets, on a 375pt iPhone.
+  private func size(of family: LockScreenWidgetContent.Family) -> CGSize {
+    switch family {
+    case .circular: CGSize(width: 68, height: 68)
+    case .rectangular: CGSize(width: 153, height: 68)
+    case .inline: CGSize(width: 225, height: 26)
+    }
+  }
+
+  private func writeLockScreen(
+    _ content: some View,
+    family: LockScreenWidgetContent.Family,
+    scheme: ColorScheme,
+    name: String,
+    to directory: URL
+  ) throws {
+    let dimensions = size(of: family)
+    let framed =
+      content
+      .frame(width: dimensions.width, height: dimensions.height)
+      .background(scheme == .dark ? Color.black : Color.white)
+      .environment(\.colorScheme, scheme)
+    let renderer = ImageRenderer(content: framed)
+    renderer.scale = 3
+    let data = try #require(renderer.uiImage?.pngData())
+    try data.write(to: directory.appending(path: "481-lockscreen-\(family.rawValue)-\(name).png"))
+  }
+
+  @Test("Every state renders in each lock-screen family, light and dark")
+  func lockScreenStates() throws {
+    let directory = try #require(widgetScreenshotsDirectory)
+    for family in LockScreenWidgetContent.Family.allCases {
+      for scheme in [ColorScheme.light, .dark] {
+        for state in Self.states {
+          let entry = RunwayWidgetEntry(date: .now, content: state.content)
+          try writeLockScreen(
+            LockScreenWidgetContent(entry: entry, family: family),
+            family: family,
+            scheme: scheme,
+            name: "\(state.name)-\(scheme == .dark ? "dark" : "light")",
+            to: directory
+          )
+        }
+      }
+    }
+  }
+
+  @Test("Lock-screen families with private amounts redacted, and at the largest text size")
+  func lockScreenVariants() throws {
+    let directory = try #require(widgetScreenshotsDirectory)
+    let content = Self.allowance(
+      today: -10_000_000_000_000,
+      period: -20_000_000_000_000,
+      days: 11,
+      status: .over
+    )
+    for family in LockScreenWidgetContent.Family.allCases {
+      try writeLockScreen(
+        LockScreenWidgetContent(
+          entry: RunwayWidgetEntry(date: .now, content: content, amountsArePrivate: true),
+          family: family
+        )
+        .redacted(reason: .privacy),
+        family: family,
+        scheme: .dark,
+        name: "locked-dark",
+        to: directory
+      )
+      try writeLockScreen(
+        LockScreenWidgetContent(
+          entry: RunwayWidgetEntry(date: .now, content: content),
+          family: family
+        )
+        .environment(\.dynamicTypeSize, .xxLarge),
+        family: family,
+        scheme: .dark,
+        name: "import-max-xxlarge-dark",
         to: directory
       )
     }

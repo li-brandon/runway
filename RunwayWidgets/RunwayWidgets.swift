@@ -16,7 +16,13 @@ struct LeftToSpendWidget: Widget {
     }
     .configurationDisplayName("Left to Spend")
     .description("What you can spend today and how long this period has left.")
-    .supportedFamilies([.systemSmall, .systemMedium])
+    .supportedFamilies([
+      .systemSmall,
+      .systemMedium,
+      .accessoryCircular,
+      .accessoryRectangular,
+      .accessoryInline,
+    ])
   }
 }
 
@@ -61,6 +67,7 @@ struct LeftToSpendProvider: TimelineProvider {
         remainingTodayCents: -1_250,
         remainingPeriodCents: 30_000,
         daysLeft: 4,
+        periodDays: 14,
         status: .over
       )
     )
@@ -80,9 +87,31 @@ struct LeftToSpendProvider: TimelineProvider {
         remainingTodayCents: 12_345_678,
         remainingPeriodCents: 186_049_248,
         daysLeft: 11,
+        periodDays: 14,
         status: .normal
       )
     )
   )
+  RunwayWidgetEntry(date: .now, content: .noBudget)
+}
+
+#Preview("Circular", as: .accessoryCircular) {
+  LeftToSpendWidget()
+} timeline: {
+  RunwayWidgetEntry.sample
+  RunwayWidgetEntry(date: .now, content: .noBudget)
+}
+
+#Preview("Rectangular", as: .accessoryRectangular) {
+  LeftToSpendWidget()
+} timeline: {
+  RunwayWidgetEntry.sample
+  RunwayWidgetEntry(date: .now, content: .noBudget)
+}
+
+#Preview("Inline", as: .accessoryInline) {
+  LeftToSpendWidget()
+} timeline: {
+  RunwayWidgetEntry.sample
   RunwayWidgetEntry(date: .now, content: .noBudget)
 }
