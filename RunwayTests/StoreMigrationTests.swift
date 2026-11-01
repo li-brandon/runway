@@ -547,7 +547,6 @@ struct StoreMigrationTests {
       let marker = sibling(of: stores.new, named: "default.store.migrated")
       try FileManager.default.removeItem(at: marker)
       try seedStore(at: stores.old)
-      let oldBytes = try Data(contentsOf: stores.old)
 
       #expect(throws: RunwayStoreError.sharedStoreUnavailable) {
         _ = try RunwayModelContainer.resolveStoreURL(
@@ -557,7 +556,9 @@ struct StoreMigrationTests {
         )
       }
 
-      #expect(try Data(contentsOf: stores.old) == oldBytes)
+      // SQLite can still checkpoint the just-seeded store after it closes, so compare contents,
+      // not bytes: the old store must be left in place with its data.
+      try expectSeededData(at: stores.old)
       try expectSeededData(at: stores.new)
     }
   }
