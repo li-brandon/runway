@@ -218,7 +218,7 @@ struct WidgetRedactionRenderTests {
     }
   }
 
-  @Test("Unredacted, a home-screen widget's width follows its amount")
+  @Test("Unredacted, a home-screen widget's rendering follows its amount")
   func unredactedWidth() throws {
     let layout = RunwayWidgetContent.Layout.small
     let small = try render(
@@ -241,7 +241,9 @@ struct WidgetRedactionRenderTests {
       ),
       in: frame(of: layout)
     )
-    #expect(small.idealSize.width < large.idealSize.width)
+    // The widget frame clamps the ideal size, so compare pixels: this proves the redaction
+    // comparisons above would catch a difference.
+    #expect(small.framedImage != large.framedImage)
   }
 
   @Test("With the app lock off, widgets keep their real figures on a locked device")
