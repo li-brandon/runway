@@ -29,13 +29,18 @@ struct TodayNavigation: Equatable, Sendable {
   var showsHistory = false
   var todayPresentsSheet = false
   var historyPresentsSheet = false
+  /// When History's pending undo runs out, or `nil` if it has none.
+  var historyUndoExpiresAt: Date?
 
   /// A widget's link goes back to Today, unless a sheet is open: leaving History would close its
-  /// editor and lose the draft without asking.
-  mutating func open(_ url: URL) {
+  /// editor and lose the draft without asking. It also stays on History while Undo can still
+  /// restore a delete, since the undo lives and dies with that screen. The deadline is compared
+  /// with `now` because an undo that ran out while the app was suspended may not have cleared yet.
+  mutating func open(_ url: URL, now: Date) {
     guard AppDeepLink(url: url) == .today, !todayPresentsSheet, !historyPresentsSheet else {
       return
     }
+    if let historyUndoExpiresAt, now < historyUndoExpiresAt { return }
     showsHistory = false
   }
 }

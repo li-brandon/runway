@@ -175,13 +175,14 @@ struct ContentView: View {
           budget: budget,
           now: displayNow,
           presentsSheet: $navigation.historyPresentsSheet,
+          undoExpiresAt: $navigation.historyUndoExpiresAt,
           screenshotScenario: screenshotScenario
         )
       }
       .onChange(of: presentsSheet, initial: true) { _, isPresented in
         navigation.todayPresentsSheet = isPresented
       }
-      .onOpenURL { navigation.open($0) }
+      .onOpenURL { navigation.open($0, now: .now) }
       .sensoryFeedback(.success, trigger: saveFeedback)
       .onChange(of: scenePhase) { _, phase in
         guard phase == .active else { return }

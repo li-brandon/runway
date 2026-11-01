@@ -315,6 +315,35 @@ struct HistoryEditingTests {
     #expect(try today(now: now).allowanceTodayCents == 16_250)
   }
 
+  @Test("After a delete in History, the widget link keeps the screen so Undo restores the item")
+  func widgetLinkKeepsHistoryUndo() throws {
+    let now = calendar.date(2026, 6, 4, 12)
+    let date = calendar.date(2026, 6, 2, 12)
+    let lunch = try service.createExpense(amountCents: 900, note: "Lunch", date: date, now: date)
+    try context.save()
+    var slot = HistoryUndoSlot()
+    var navigation = TodayNavigation(showsHistory: true)
+
+    try slot.delete(lunch, in: context, now: now)
+    navigation.historyUndoExpiresAt = slot.pending?.expiresAt
+    let notesAfterDelete = try savedExpenses().map { $0.note }
+    #expect(notesAfterDelete.isEmpty)
+
+    let opened = now.addingTimeInterval(1)
+    navigation.open(AppDeepLink.todayURL, now: opened)
+    #expect(navigation.showsHistory)
+
+    let restored = try slot.undo(in: context, now: opened.addingTimeInterval(1))
+    #expect(restored != nil)
+    navigation.historyUndoExpiresAt = slot.pending?.expiresAt
+    let notesAfterUndo = try savedExpenses().map { $0.note }
+    #expect(notesAfterUndo == ["Lunch"])
+
+    // With nothing left to undo, the link goes back to Today as usual.
+    navigation.open(AppDeepLink.todayURL, now: opened.addingTimeInterval(2))
+    #expect(!navigation.showsHistory)
+  }
+
   @Test("Expiry empties the slot only for the deletion it was scheduled for")
   func undoSlotExpiry() throws {
     let now = calendar.date(2026, 6, 4, 12)
