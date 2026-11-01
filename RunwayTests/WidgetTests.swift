@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import Testing
+import WidgetKit
 
 @testable import Runway
 
@@ -93,7 +94,10 @@ struct WidgetTimelineTests {
     #expect(result.entries.map(\.date) == [now, midnight])
     let expected: [RunwayWidgetEntry.Content] = [now, midnight].map { date in
       .allowance(
-        WidgetAllowance(engine.currentAllowance(budget: budget, expenses: expenses, now: date))
+        WidgetAllowance(
+          engine.currentAllowance(budget: budget, expenses: expenses, now: date),
+          calendar: calendar
+        )
       )
     }
     #expect(result.entries.map(\.content) == expected)
@@ -102,6 +106,7 @@ struct WidgetTimelineTests {
       remainingTodayCents: 25_500,
       remainingPeriodCents: 137_500,
       daysLeft: 5,
+      periodDays: 14,
       status: .normal
     )
     #expect(result.entries[0].content == .allowance(today))
@@ -116,6 +121,7 @@ struct WidgetTimelineTests {
       remainingTodayCents: -122_000,
       remainingPeriodCents: -10_000,
       daysLeft: 5,
+      periodDays: 14,
       status: .over
     )
     #expect(result.entries[0].content == .allowance(today))
@@ -130,6 +136,7 @@ struct WidgetTimelineTests {
       remainingTodayCents: 0,
       remainingPeriodCents: 0,
       daysLeft: 5,
+      periodDays: 14,
       status: .noAllowance
     )
     #expect(result.entries[0].content == .allowance(today))
@@ -205,6 +212,181 @@ struct WidgetTimelineTests {
       Issue.record("Expected an allowance entry")
       return
     }
+  }
+}
+
+struct LockScreenWidgetTests {
+  private func allowance(
+    today: Int = 4_250,
+    daysLeft: Int = 9,
+    periodDays: Int = 14
+  ) -> WidgetAllowance {
+    WidgetAllowance(
+      remainingTodayCents: today,
+      remainingPeriodCents: 48_000,
+      daysLeft: daysLeft,
+      periodDays: periodDays,
+      status: .normal
+    )
+  }
+
+  @Test("The inline text reads amount, then days, abbreviating large amounts")
+  func inlineText() {
+    let cases: [(cents: Int, days: Int, expected: String)] = [
+      (4_250, 9, "$42.50 today · 9 days left"),
+      (4_250, 1, "$42.50 today · 1 day left"),
+      (0, 0, "$0.00 today · 0 days left"),
+      (-12_500, 14, "-$125.00 today · 14 days left"),
+      (12_345_678, 11, "$123.5K today · 11 days left"),
+      (-10_000_000_000_000, 11, "-$100B today · 11 days left"),
+    ]
+    for item in cases {
+      let text = LockScreenText.inline(
+        allowance(today: item.cents, daysLeft: item.days),
+        locale: Money.fixedLocale
+      )
+      #expect(text == item.expected)
+      #expect(!text.contains("…"))
+    }
+  }
+
+  @Test("The inline fallback keeps the amount and days")
+  func compactInlineText() {
+    let text = LockScreenText.compactInline(
+      allowance(today: 12_345_678, daysLeft: 11),
+      locale: Money.fixedLocale
+    )
+    #expect(text == "$123.5K · 11d")
+  }
+
+  @Test("VoiceOver gets the full amount")
+  func accessibilityText() {
+    let text = LockScreenText.accessibility(
+      allowance(today: 12_345_678, daysLeft: 1),
+      locale: Money.fixedLocale
+    )
+    #expect(text == "$123,456.78 today, 1 day left")
+  }
+
+  @Test("VoiceOver gets the full amount in the rectangular widget")
+  func rectangularAccessibilityText() {
+    let text = LockScreenText.rectangularAccessibility(
+      allowance(today: 12_345_678),
+      locale: Money.fixedLocale
+    )
+    #expect(text == "Left to spend today, $123,456.78")
+  }
+
+  @Test("Unredacted, VoiceOver reads the text with its figures")
+  func unredactedAccessibilityLabel() {
+    let figures = allowance(today: 12_345_678, daysLeft: 9)
+    let texts = [
+      LockScreenText.accessibility(figures, locale: Money.fixedLocale),
+      LockScreenText.rectangularAccessibility(figures, locale: Money.fixedLocale),
+    ]
+    for text in texts {
+      let label = LockScreenText.accessibilityLabel(text, isPrivate: false)
+      #expect(label == text)
+      #expect(label.contains("$123,456.78"))
+    }
+  }
+
+  @Test("Redacted, VoiceOver reads a label with no figures")
+  func redactedAccessibilityLabel() {
+    for cents in [0, 4_250, -12_500, 12_345_678] {
+      let figures = allowance(today: cents, daysLeft: 9)
+      let texts = [
+        LockScreenText.accessibility(figures, locale: Money.fixedLocale),
+        LockScreenText.rectangularAccessibility(figures, locale: Money.fixedLocale),
+      ]
+      for text in texts {
+        let label = LockScreenText.accessibilityLabel(text, isPrivate: true)
+        #expect(label == "Left to spend today")
+        #expect(!label.contains("$"))
+        #expect(!label.contains { $0.isNumber })
+      }
+    }
+  }
+
+  @Test("The rectangular days text is singular only for one day")
+  func rectangularDaysLeft() {
+    #expect(LockScreenText.daysLeft(0) == "0 days left")
+    #expect(LockScreenText.daysLeft(1) == "1 day left")
+    #expect(LockScreenText.daysLeft(14) == "14 days left")
+  }
+
+  @Test("The rectangular amount ends abbreviated at its smallest size, without an ellipsis")
+  func rectangularAmount() throws {
+    let steps = LockScreenText.rectangularAmountSteps
+    let candidates = AmountCandidate.candidates(
+      cents: -10_000_000_000_000,
+      steps: steps,
+      locale: Money.fixedLocale
+    )
+    let last = try #require(candidates.last)
+    #expect(last.text == "-$100B")
+    #expect(last.style == steps.last)
+    let texts = candidates.map { $0.text }
+    #expect(!texts.contains { $0.contains("…") })
+  }
+
+  @Test("The gauge shows days elapsed over the period's length")
+  func gaugeFraction() {
+    let cases: [(daysLeft: Int, periodDays: Int, expected: Double)] = [
+      (14, 14, 0),
+      (5, 14, 9.0 / 14.0),
+      (1, 14, 13.0 / 14.0),
+      (0, 14, 1),
+      (10, 30, 20.0 / 30.0),
+      // Out-of-range figures stay on the gauge.
+      (20, 14, 0),
+      (0, 0, 1),
+    ]
+    for item in cases {
+      let fraction = allowance(daysLeft: item.daysLeft, periodDays: item.periodDays).elapsedFraction
+      #expect(fraction == item.expected)
+    }
+  }
+
+  @Test("A monthly budget's gauge uses that month's length")
+  func monthlyPeriodDays() throws {
+    let calendar = Calendar.gregorian("America/Chicago")
+    let now = calendar.date(2026, 6, 10, 12)
+    let container = try RunwayModelContainer.make(inMemory: true)
+    let context = ModelContext(container)
+    context.insert(
+      Budget(
+        periodLength: .monthly,
+        periodStart: calendar.date(2026, 6, 1),
+        spendablePerPeriodCents: 140_000,
+        timeZoneIdentifier: calendar.timeZone.identifier
+      )
+    )
+    try context.save()
+
+    let result = WidgetTimelineBuilder.plan(
+      loadContainer: { container },
+      amountsArePrivate: false,
+      now: now,
+      calendar: calendar
+    )
+
+    guard case .allowance(let allowance) = result.entries[0].content else {
+      Issue.record("Expected an allowance entry")
+      return
+    }
+    #expect(allowance.periodDays == 30)
+    #expect(allowance.daysLeft == 21)
+    #expect(allowance.elapsedFraction == 9.0 / 30.0)
+  }
+
+  @Test("Only accessory families use the lock-screen layouts")
+  func families() {
+    #expect(LockScreenWidgetContent.Family(.accessoryCircular) == .circular)
+    #expect(LockScreenWidgetContent.Family(.accessoryRectangular) == .rectangular)
+    #expect(LockScreenWidgetContent.Family(.accessoryInline) == .inline)
+    #expect(LockScreenWidgetContent.Family(.systemSmall) == nil)
+    #expect(LockScreenWidgetContent.Family(.systemMedium) == nil)
   }
 }
 

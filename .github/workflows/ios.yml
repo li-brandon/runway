@@ -302,6 +302,12 @@ jobs:
             echo "::error title=Widget screenshots::Expected at least 36 widget screenshots but rendered $WIDGET_SHOTS"
             exit 1
           fi
+          LOCK_SCREEN_SHOTS="$(find screenshots -name '481-lockscreen-*.png' | wc -l | tr -d ' ')"
+          echo "Lock-screen widget screenshots: $LOCK_SCREEN_SHOTS"
+          if [ "$LOCK_SCREEN_SHOTS" -lt 54 ]; then
+            echo "::error title=Widget screenshots::Expected at least 54 lock-screen widget screenshots but rendered $LOCK_SCREEN_SHOTS"
+            exit 1
+          fi
 
           # Screenshots run on a dedicated narrow (375pt) iPhone so layout problems show up.
           TYPES_JSON="$RUNNER_TEMP/simctl-devicetypes.json"
