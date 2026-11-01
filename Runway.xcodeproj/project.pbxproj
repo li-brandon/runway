@@ -73,6 +73,7 @@
 				Views/TextScaling.swift,
 				Views/TodayStatusColor.swift,
 				Widgets/AppDeepLink.swift,
+				Widgets/LockScreenWidgetViews.swift,
 				Widgets/WidgetEntry.swift,
 				Widgets/WidgetPrivacy.swift,
 				Widgets/WidgetTimelinePlanner.swift,

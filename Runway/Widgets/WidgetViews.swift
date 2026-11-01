@@ -10,13 +10,23 @@ struct RunwayWidgetView: View {
   @Environment(\.widgetRenderingMode) private var renderingMode
 
   var body: some View {
-    RunwayWidgetContent(
-      entry: entry,
-      layout: family == .systemMedium ? .medium : .small,
-      usesStatusColor: renderingMode == .fullColor
-    )
-    .containerBackground(.background, for: .widget)
-    .widgetURL(AppDeepLink.todayURL)
+    content
+      .widgetURL(AppDeepLink.todayURL)
+  }
+
+  @ViewBuilder
+  private var content: some View {
+    if let lockScreenFamily = LockScreenWidgetContent.Family(family) {
+      LockScreenWidgetContent(entry: entry, family: lockScreenFamily)
+        .containerBackground(.clear, for: .widget)
+    } else {
+      RunwayWidgetContent(
+        entry: entry,
+        layout: family == .systemMedium ? .medium : .small,
+        usesStatusColor: renderingMode == .fullColor
+      )
+      .containerBackground(.background, for: .widget)
+    }
   }
 }
 

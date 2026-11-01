@@ -41,6 +41,8 @@ struct AmountText: View {
   var fullSize = AmountStyle.maximumSize
   /// Read as the label, with the amount as its value. Without one, the amount is the label.
   var accessibilityTitle: LocalizedStringKey?
+  /// Read instead of the title and amount, for a view that can't always read the amount.
+  var accessibilityOverride: String?
   var locale = Locale.autoupdatingCurrent
 
   var candidates: [AmountCandidate] {
@@ -52,7 +54,10 @@ struct AmountText: View {
   }
 
   var body: some View {
-    if let accessibilityTitle {
+    if let accessibilityOverride {
+      fittingText
+        .accessibilityLabel(accessibilityOverride)
+    } else if let accessibilityTitle {
       fittingText
         .accessibilityLabel(Text(accessibilityTitle))
         .accessibilityValue(accessibilityText)

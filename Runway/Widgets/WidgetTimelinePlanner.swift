@@ -26,7 +26,7 @@ struct WidgetTimelinePlanner: Sendable {
       let result = engine.currentAllowance(budget: budget, expenses: expenses, now: date)
       return RunwayWidgetEntry(
         date: date,
-        content: .allowance(WidgetAllowance(result)),
+        content: .allowance(WidgetAllowance(result, calendar: calendar)),
         amountsArePrivate: amountsArePrivate
       )
     }

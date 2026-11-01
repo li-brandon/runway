@@ -8,20 +8,39 @@ struct WidgetAllowance: Equatable, Sendable {
   var remainingTodayCents: Int
   var remainingPeriodCents: Int
   var daysLeft: Int
+  /// Days in the current period, which is shorter than its schedule after a schedule change.
+  var periodDays: Int
   var status: TodayStatus
 
-  init(_ result: AllowanceResult) {
+  init(_ result: AllowanceResult, calendar: Calendar) {
     remainingTodayCents = result.remainingTodayCents
     remainingPeriodCents = result.remainingPeriodCents
     daysLeft = result.daysLeft
+    periodDays = AllowanceEngine(calendar: calendar)
+      .dayCount(from: result.period.start, to: result.period.end)
     status = TodayStatus(result)
   }
 
-  init(remainingTodayCents: Int, remainingPeriodCents: Int, daysLeft: Int, status: TodayStatus) {
+  init(
+    remainingTodayCents: Int,
+    remainingPeriodCents: Int,
+    daysLeft: Int,
+    periodDays: Int,
+    status: TodayStatus
+  ) {
     self.remainingTodayCents = remainingTodayCents
     self.remainingPeriodCents = remainingPeriodCents
     self.daysLeft = daysLeft
+    self.periodDays = periodDays
     self.status = status
+  }
+
+  /// How far through the period today is: days elapsed / period length, from 0 on its first day. A
+  /// period with no days counts as finished.
+  var elapsedFraction: Double {
+    guard periodDays > 0 else { return 1 }
+    let elapsed = min(max(periodDays - daysLeft, 0), periodDays)
+    return Double(elapsed) / Double(periodDays)
   }
 }
 
@@ -48,6 +67,7 @@ struct RunwayWidgetEntry: TimelineEntry, Equatable, Sendable {
           remainingTodayCents: 4_250,
           remainingPeriodCents: 48_000,
           daysLeft: 9,
+          periodDays: 14,
           status: .normal
         )
       )
