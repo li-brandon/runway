@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import os
 
 /// Moves the store once from its old location to a new one. Run it before any container opens
@@ -13,6 +14,10 @@ import os
 /// The migration never deletes the old store; only `DataReset` does, when the user erases their
 /// data. It's renamed to a dated backup, and only while it still matches the size and modification
 /// date in the marker. A store that has changed since, as after a downgrade, is left alone.
+///
+/// SQLite closes a store some time after its container is released, and renaming or deleting files
+/// a connection still has open breaks the next open with `SQLITE_IOERR_VNODE`. So no store file
+/// moves or is deleted until every connection to that store has closed.
 struct StoreMigration {
   enum Outcome: Equatable {
     /// There was no old store, as on a fresh install.
@@ -43,6 +48,7 @@ struct StoreMigration {
   }
 
   private static let completedKey = "StoreMigration.completed"
+  private static let sqliteHeader = Data("SQLite format 3\0".utf8)
 
   let oldStoreURL: URL
   let newStoreURL: URL
@@ -53,6 +59,8 @@ struct StoreMigration {
   var countOldStore: (URL) throws -> [String: Int] = RunwayModelContainer.readOnlyStoreCounts(at:)
   /// Per-model counts of the new store. Throws unless it opens.
   var countNewStore: (URL) throws -> [String: Int] = RunwayModelContainer.storeCounts(at:)
+  /// How long to wait for a store's connections to close before leaving its files where they are.
+  var closeTimeout: TimeInterval = 5
 
   static func isComplete(newStoreURL: URL) -> Bool {
     FileManager.default.fileExists(atPath: markerURL(for: newStoreURL).path)
@@ -95,8 +103,10 @@ struct StoreMigration {
     return backups + oldFiles
   }
 
-  /// On failure the old store is untouched and nothing is left at the new location, except a store
-  /// from an earlier interrupted run if clearing it was what failed.
+  /// On failure the old store's data is untouched, though closing it can merge its `-wal` into the
+  /// store file. Nothing is left at the new location, except a store from an earlier interrupted
+  /// run if clearing it was what failed, or a copy that was still open after `closeTimeout`. The
+  /// next run clears either.
   ///
   /// Throws `RunwayStoreError.sharedStoreUnavailable` if a finished migration's store is gone from
   /// the new location. Starting over could replace the user's data with an older or empty store.
@@ -125,8 +135,9 @@ struct StoreMigration {
     }
     let migratedStore: MigratedStore
     do {
-      let counts = try countOldStore(oldStoreURL)
+      let counts = try autoreleasepool { try countOldStore(oldStoreURL) }
       // Stamped after the read-only open has closed, so nothing it did can look like a later write.
+      waitUntilClosed(oldStoreURL)
       migratedStore = MigratedStore(
         store: try Self.stamp(of: oldStoreURL),
         wal: try? Self.stamp(of: Self.walURL(of: oldStoreURL)),
@@ -139,13 +150,16 @@ struct StoreMigration {
       for (source, destination) in copies where fileManager.fileExists(atPath: source.path) {
         try fileManager.copyItem(at: source, to: destination)
       }
-      let copiedCounts = try countNewStore(newStoreURL)
+      let copiedCounts = try autoreleasepool { try countNewStore(newStoreURL) }
       guard copiedCounts == counts else {
         throw RunwayStoreError.migrationCountMismatch(expected: counts, found: copiedCounts)
       }
+      waitUntilClosed(newStoreURL)
       try writeMarker(Marker(migratedStore: migratedStore))
     } catch {
-      try? removeNewFiles()
+      if waitUntilClosed(newStoreURL) {
+        try? removeNewFiles()
+      }
       throw error
     }
     recordComplete()
@@ -198,6 +212,55 @@ struct StoreMigration {
     defaults.set(true, forKey: Self.completedKey)
   }
 
+  /// Whether every connection to the store closed within `closeTimeout`. The last one to close
+  /// merges the `-wal` into the store file, and any sidecars it leaves are still safe to move.
+  @discardableResult
+  private func waitUntilClosed(_ storeURL: URL) -> Bool {
+    let deadline = Date.now.addingTimeInterval(closeTimeout)
+    while Self.hasOpenConnection(to: storeURL) {
+      guard Date.now < deadline else {
+        RunwayModelContainer.logger.notice("A store was still open after waiting for it to close")
+        return false
+      }
+      Thread.sleep(forTimeInterval: 0.02)
+    }
+    return true
+  }
+
+  /// Every open connection holds a shared lock on a WAL store, even when idle, so an exclusive
+  /// lock is refused until they've all closed. SQLite applies that between connections in this
+  /// process as well as other processes.
+  ///
+  /// Only opens real SQLite stores, because closing would discard a `-wal` it can't apply. A store
+  /// that can't be opened for any other reason has no sign of a connection, so reports none.
+  private static func hasOpenConnection(to storeURL: URL) -> Bool {
+    guard
+      let handle = try? FileHandle(forReadingFrom: storeURL),
+      let header = try? handle.read(upToCount: sqliteHeader.count),
+      header == sqliteHeader
+    else {
+      return false
+    }
+    var connection: OpaquePointer?
+    defer { sqlite3_close(connection) }
+    let opened = sqlite3_open_v2(storeURL.path, &connection, SQLITE_OPEN_READWRITE, nil)
+    guard opened == SQLITE_OK else { return false }
+    let result = sqlite3_exec(
+      connection,
+      "PRAGMA locking_mode=EXCLUSIVE; SELECT count(*) FROM sqlite_master;",
+      nil,
+      nil,
+      nil
+    )
+    return result == SQLITE_BUSY || result == SQLITE_LOCKED
+  }
+
+  private func isUnchanged(_ migratedStore: MigratedStore) -> Bool {
+    let wal = try? Self.stamp(of: Self.walURL(of: oldStoreURL))
+    return (try? Self.stamp(of: oldStoreURL)) == migratedStore.store
+      && (wal == nil || wal == migratedStore.wal)
+  }
+
   private func removeNewFiles() throws {
     let fileManager = FileManager.default
     for file in Self.files(of: newStoreURL) where fileManager.fileExists(atPath: file.path) {
@@ -211,16 +274,19 @@ struct StoreMigration {
   /// The store file moves last, so a run that stops partway still leaves it to match on the next
   /// launch, and never leaves a stray `-wal` that a store created later would replay. That's why a
   /// missing `-wal` still counts as unchanged: a real write that removed it changes the store file.
+  ///
+  /// A changed store isn't even opened to check for connections, since closing it could alter it.
+  /// It's compared again afterwards, in case a connection wrote to it as it closed.
   private func backUpOldStoreIfUnchanged(_ migratedStore: MigratedStore) {
     let fileManager = FileManager.default
     guard fileManager.fileExists(atPath: oldStoreURL.path) else { return }
-    let wal = try? Self.stamp(of: Self.walURL(of: oldStoreURL))
     guard
-      (try? Self.stamp(of: oldStoreURL)) == migratedStore.store,
-      wal == nil || wal == migratedStore.wal
+      isUnchanged(migratedStore),
+      waitUntilClosed(oldStoreURL),
+      isUnchanged(migratedStore)
     else {
       RunwayModelContainer.logger.notice(
-        "The store at the old location changed after the migration; leaving it in place"
+        "The store at the old location changed or is still open; leaving it in place"
       )
       return
     }
