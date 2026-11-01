@@ -281,6 +281,10 @@ CI can't run these, so check them on a real iPhone:
   log an expense and check the widget's number changes as soon as you're back on the home
   screen. Note the number before midnight, leave the app closed, and check the number and days left
   have rolled over to the new day after midnight.
+- **Widget stays current with the app closed:** force-quit the app, leave it closed for over an hour,
+  and check the widget still shows today's number. Then, with the app still closed, change the
+  device's time zone (Settings > General > Date & Time) to one where it's already the next day, and
+  check the widget's number and days left update within about an hour.
 - **Lock-screen widgets:** add all three to the lock screen with App lock on, lock the device, and
   check that the figures and the gauge's ring are hidden, and that the inline text isn't truncated.
   Unlock and tap each one to check that it opens Today.
