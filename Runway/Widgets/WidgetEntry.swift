@@ -120,13 +120,12 @@ enum WidgetTimelineBuilder {
     now: Date,
     calendar: Calendar
   ) throws -> WidgetTimelinePlan {
-    let midnight = nextMidnight(after: now, calendar: calendar)
     var descriptor = FetchDescriptor<Budget>(sortBy: [SortDescriptor(\.periodStart)])
     descriptor.fetchLimit = 1
     guard let budget = try context.fetch(descriptor).first else {
       return WidgetTimelinePlan(
         entries: [RunwayWidgetEntry(date: now, content: .noBudget)],
-        reloadDate: midnight
+        reloadDate: WidgetTimelinePlanner(calendar: calendar).reloadDate(now: now)
       )
     }
     // Today adopts the current time zone first, so do the same. This is never saved.

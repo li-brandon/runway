@@ -53,13 +53,13 @@ struct WidgetTimelineTests {
     return container
   }
 
-  @Test("No budget gives the setup entry, reloading at midnight")
+  @Test("No budget gives the setup entry, reloading within the hour")
   func noBudget() throws {
     let now = calendar.date(2026, 6, 10, 12)
     let container = try RunwayModelContainer.make(inMemory: true)
     let result = plan(in: container, now: now)
     #expect(result.entries == [RunwayWidgetEntry(date: now, content: .noBudget)])
-    #expect(result.reloadDate == calendar.date(2026, 6, 11))
+    #expect(result.reloadDate == calendar.date(2026, 6, 10, 13))
   }
 
   @Test("A store that can't open gives the placeholder entry and tries again soon")
@@ -90,7 +90,7 @@ struct WidgetTimelineTests {
 
     let result = plan(in: container, now: now)
 
-    #expect(result.reloadDate == midnight)
+    #expect(result.reloadDate == calendar.date(2026, 6, 10, 13))
     #expect(result.entries.map(\.date) == [now, midnight])
     let expected: [RunwayWidgetEntry.Content] = [now, midnight].map { date in
       .allowance(

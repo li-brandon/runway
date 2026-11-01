@@ -3,6 +3,10 @@ import Foundation
 /// Decides when a widget's figures change and works them out ahead of time, so they roll over
 /// without the app running. Works only from its arguments, so tests can inject the calendar.
 struct WidgetTimelinePlanner: Sendable {
+  /// The longest to go without a reload, so a clock or time zone change is picked up with the app
+  /// closed.
+  static let maxReloadInterval: TimeInterval = 60 * 60
+
   let calendar: Calendar
 
   /// The moments to show new figures: now, the start or end of `period` if either comes before the
@@ -13,7 +17,15 @@ struct WidgetTimelinePlanner: Sendable {
     return [now] + boundaries + [midnight]
   }
 
-  /// An entry from `AllowanceEngine` for each of `entryDates`, reloading at the next midnight.
+  /// When to rebuild the timeline: the next midnight, or an hour from `now` if that comes first.
+  func reloadDate(now: Date) -> Date {
+    min(
+      nextMidnight(after: now, calendar: calendar),
+      now.addingTimeInterval(Self.maxReloadInterval)
+    )
+  }
+
+  /// An entry from `AllowanceEngine` for each of `entryDates`, reloading at `reloadDate`.
   func plan(
     budget: BudgetSnapshot,
     expenses: [ExpenseSnapshot],
@@ -30,9 +42,6 @@ struct WidgetTimelinePlanner: Sendable {
         amountsArePrivate: amountsArePrivate
       )
     }
-    return WidgetTimelinePlan(
-      entries: entries,
-      reloadDate: nextMidnight(after: now, calendar: calendar)
-    )
+    return WidgetTimelinePlan(entries: entries, reloadDate: reloadDate(now: now))
   }
 }

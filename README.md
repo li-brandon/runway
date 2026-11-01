@@ -257,12 +257,13 @@ The `RunwayWidgets` extension shares source files with the app rather than a fra
 its code needs must be added to the `Runway` folder's exceptions for the `RunwayWidgets` target in
 `project.pbxproj` (in Xcode, the file's target membership). `Runway/Widgets` holds the code that
 tests and CI screenshots reach through the app module. Widgets open the store read-only, and refresh
-after every save, when the app launches or changes between foreground and background, when the
-clock or time zone changes while the app is running, and at midnight. Tapping a widget opens
-`runway://today`, which brings the app forward and goes back from History to Today. If a sheet is
-open, the app stays on the same screen, so the sheet and its draft stay as they were. The same
-widget also offers the lock-screen families: a gauge of the period's days, today's amount with days
-left, and one line of text.
+after every save, when the app launches or changes between foreground and background, and when the
+clock or time zone changes while the app is running. With the app closed, each timeline asks iOS to
+reload at the next midnight or in an hour, whichever is sooner, to pick up those changes. Tapping a
+widget opens `runway://today`, which brings the app forward and goes back from History to Today. If
+a sheet is open, the app stays on the same screen, so the sheet and its draft stay as they were. The
+same widget also offers the lock-screen families: a gauge of the period's days, today's amount with
+days left, and one line of text.
 
 ## Device checks
 

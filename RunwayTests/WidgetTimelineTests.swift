@@ -9,6 +9,7 @@ import os
 
 struct WidgetTimelinePlannerTests {
   private let calendar = Calendar.gregorian("America/Chicago")
+  private let utc = Calendar.gregorian("UTC")
   private let hour: TimeInterval = 60 * 60
 
   private var planner: WidgetTimelinePlanner {
@@ -52,7 +53,7 @@ struct WidgetTimelinePlannerTests {
       let result = plan(from: calendar.date(2026, 10, 18), now: now)
       let dates = result.entries.map { $0.date }
       #expect(dates == [now, midnight])
-      #expect(result.reloadDate == midnight)
+      #expect(result.reloadDate == now.addingTimeInterval(hour))
     }
   }
 
@@ -66,15 +67,15 @@ struct WidgetTimelinePlannerTests {
       let result = plan(from: calendar.date(2026, 3, 1), now: now)
       let dates = result.entries.map { $0.date }
       #expect(dates == [now, midnight])
-      #expect(result.reloadDate == midnight)
+      #expect(result.reloadDate == now.addingTimeInterval(hour))
     }
   }
 
   @Test("The day before each change rolls over at the change day's midnight")
   func dayBeforeChange() {
-    let fall = plan(from: calendar.date(2026, 10, 18), now: calendar.date(2026, 10, 31, 12))
+    let fall = plan(from: calendar.date(2026, 10, 18), now: calendar.date(2026, 10, 31, 23, 30))
     #expect(fall.reloadDate == calendar.date(2026, 11, 1))
-    let spring = plan(from: calendar.date(2026, 3, 1), now: calendar.date(2026, 3, 7, 12))
+    let spring = plan(from: calendar.date(2026, 3, 1), now: calendar.date(2026, 3, 7, 23, 30))
     #expect(spring.reloadDate == calendar.date(2026, 3, 8))
   }
 
@@ -89,6 +90,158 @@ struct WidgetTimelinePlannerTests {
     #expect(springDays == [7, 6])
   }
 
+  // MARK: - Reload date
+
+  @Test("Reloads an hour from now when midnight is further away")
+  func reloadWithinTheHour() {
+    let now = calendar.date(2026, 6, 10, 12)
+    let result = plan(from: calendar.date(2026, 6, 1), now: now)
+    #expect(planner.reloadDate(now: now) == calendar.date(2026, 6, 10, 13))
+    #expect(result.reloadDate == calendar.date(2026, 6, 10, 13))
+    let dates = result.entries.map { $0.date }
+    #expect(dates == [now, calendar.date(2026, 6, 11)])
+  }
+
+  @Test("Reloads at midnight when that's within the hour")
+  func reloadAtMidnight() {
+    let midnight = calendar.date(2026, 6, 11)
+    for now in [calendar.date(2026, 6, 10, 23), calendar.date(2026, 6, 10, 23, 30)] {
+      let result = plan(from: calendar.date(2026, 6, 1), now: now)
+      #expect(result.reloadDate == midnight)
+      let dates = result.entries.map { $0.date }
+      #expect(dates == [now, midnight])
+    }
+  }
+
+  @Test("On the 25-hour day, an hour is elapsed time, even in the repeated hour")
+  func reloadOnFallBack() {
+    let firstOneThirty = utc.date(2026, 11, 1, 6, 30)
+    let secondOneThirty = utc.date(2026, 11, 1, 7, 30)
+    let wallClockHours = [firstOneThirty, secondOneThirty].map {
+      calendar.component(.hour, from: $0)
+    }
+    #expect(wallClockHours == [1, 1])
+
+    let midnight = utc.date(2026, 11, 2, 6)
+    let cases: [(now: Date, reload: Date)] = [
+      (utc.date(2026, 11, 1, 5), utc.date(2026, 11, 1, 6)),
+      (firstOneThirty, secondOneThirty),
+      (secondOneThirty, utc.date(2026, 11, 1, 8, 30)),
+      (utc.date(2026, 11, 2, 4, 59), utc.date(2026, 11, 2, 5, 59)),
+      // 11:00 PM, where an hour from now and midnight are the same moment.
+      (utc.date(2026, 11, 2, 5), midnight),
+      // 11:30 PM.
+      (utc.date(2026, 11, 2, 5, 30), midnight),
+    ]
+    for (now, reload) in cases {
+      let result = plan(from: calendar.date(2026, 10, 18), now: now)
+      #expect(result.reloadDate == reload)
+      let dates = result.entries.map { $0.date }
+      #expect(dates == [now, midnight])
+    }
+  }
+
+  @Test("On the 23-hour day, an hour is elapsed time, even across the skipped hour")
+  func reloadOnSpringForward() {
+    // No moment falls inside the skipped hour, so these are the moments on either side of it.
+    let beforeSkip = utc.date(2026, 3, 8, 7, 59)
+    let afterSkip = utc.date(2026, 3, 8, 8)
+    let wallClockHours = [beforeSkip, afterSkip].map { calendar.component(.hour, from: $0) }
+    #expect(wallClockHours == [1, 3])
+
+    let midnight = utc.date(2026, 3, 9, 5)
+    let cases: [(now: Date, reload: Date)] = [
+      (utc.date(2026, 3, 8, 7, 30), utc.date(2026, 3, 8, 8, 30)),
+      (beforeSkip, utc.date(2026, 3, 8, 8, 59)),
+      (afterSkip, utc.date(2026, 3, 8, 9)),
+      (utc.date(2026, 3, 9, 3, 59), utc.date(2026, 3, 9, 4, 59)),
+      // 11:00 PM, where an hour from now and midnight are the same moment.
+      (utc.date(2026, 3, 9, 4), midnight),
+      // 11:30 PM.
+      (utc.date(2026, 3, 9, 4, 30), midnight),
+    ]
+    for (now, reload) in cases {
+      let result = plan(from: calendar.date(2026, 3, 1), now: now)
+      #expect(result.reloadDate == reload)
+      let dates = result.entries.map { $0.date }
+      #expect(dates == [now, midnight])
+    }
+  }
+
+  @Test("After moving from Chicago to Tokyo, the reload and the entries' days follow Tokyo")
+  func reloadAfterTimeZoneChange() throws {
+    let tokyo = Calendar.gregorian("Asia/Tokyo")
+    let container = try RunwayModelContainer.make(inMemory: true)
+    let context = ModelContext(container)
+    context.insert(
+      Budget(
+        periodLength: .biweekly,
+        periodStart: calendar.date(2026, 6, 1),
+        spendablePerPeriodCents: 140_000,
+        timeZoneIdentifier: calendar.timeZone.identifier
+      )
+    )
+    try context.save()
+
+    func tokyoPlan(now: Date) -> WidgetTimelinePlan {
+      WidgetTimelineBuilder.plan(
+        loadContainer: { container },
+        amountsArePrivate: false,
+        now: now,
+        calendar: tokyo
+      )
+    }
+
+    // 9:30 AM June 10 in Chicago is 11:30 PM in Tokyo, half an hour before its midnight.
+    let lateInTokyo = utc.date(2026, 6, 10, 14, 30)
+    let tokyoMidnight = utc.date(2026, 6, 10, 15)
+    let late = tokyoPlan(now: lateInTokyo)
+    #expect(late.reloadDate == tokyoMidnight)
+    let lateDates = late.entries.map { $0.date }
+    #expect(lateDates == [lateInTokyo, tokyoMidnight])
+    let lateDays = allowances(in: late).map { $0.daysLeft }
+    #expect(lateDays == [5, 4])
+
+    // Noon June 10 in Chicago is already 2 AM June 11 in Tokyo, a day further into the period.
+    let noonInChicago = calendar.date(2026, 6, 10, 12)
+    let next = tokyoPlan(now: noonInChicago)
+    #expect(next.reloadDate == utc.date(2026, 6, 10, 18))
+    let nextDates = next.entries.map { $0.date }
+    #expect(nextDates == [noonInChicago, utc.date(2026, 6, 11, 15)])
+    let nextDays = allowances(in: next).map { $0.daysLeft }
+    #expect(nextDays == [4, 3])
+  }
+
+  @Test("No budget uses the same reload date")
+  func reloadWithNoBudget() throws {
+    let container = try RunwayModelContainer.make(inMemory: true)
+    let cases: [(now: Date, reload: Date)] = [
+      (calendar.date(2026, 6, 10, 12), calendar.date(2026, 6, 10, 13)),
+      (calendar.date(2026, 6, 10, 23, 30), calendar.date(2026, 6, 11)),
+    ]
+    for (now, reload) in cases {
+      let result = WidgetTimelineBuilder.plan(
+        loadContainer: { container },
+        amountsArePrivate: false,
+        now: now,
+        calendar: calendar
+      )
+      #expect(result.reloadDate == reload)
+    }
+  }
+
+  @Test("A store that can't be read still retries in 15 minutes, even past midnight")
+  func retryKeepsItsInterval() {
+    let now = calendar.date(2026, 6, 10, 23, 50)
+    let result = WidgetTimelineBuilder.plan(
+      loadContainer: { throw RunwayStoreError.storeNotReady },
+      amountsArePrivate: false,
+      now: now,
+      calendar: calendar
+    )
+    #expect(result.reloadDate == calendar.date(2026, 6, 11, 0, 5))
+  }
+
   // MARK: - Period boundaries
 
   @Test("The last day's midnight entry is already in the new period")
@@ -99,7 +252,7 @@ struct WidgetTimelinePlannerTests {
 
     let dates = result.entries.map { $0.date }
     #expect(dates == [now, boundary])
-    #expect(result.reloadDate == boundary)
+    #expect(result.reloadDate == now.addingTimeInterval(hour))
     let days = allowances(in: result).map { $0.daysLeft }
     #expect(days == [1, 14])
   }
