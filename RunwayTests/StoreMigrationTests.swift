@@ -112,6 +112,8 @@ struct StoreMigrationTests {
   }
 
   private func expectSeededData(at url: URL) throws {
+    // Opening a missing store would create an empty one.
+    try #require(exists(url))
     try autoreleasepool {
       let context = ModelContext(try RunwayModelContainer.make(url: url))
       let budgets = try context.fetch(FetchDescriptor<Budget>())
@@ -366,15 +368,69 @@ struct StoreMigrationTests {
       try seedStore(at: stores.old)
       try blockBackup(of: stores)
 
-      #expect(try migration(stores).run() == .migrated)
+      let outcome = try migration(stores).run()
+      #expect(outcome == .migrated)
       #expect(exists(stores.old))
       try FileManager.default.removeItem(at: backupURL(of: stores))
 
-      #expect(try migration(stores).run() == .alreadyMigrated)
+      let retried = try migration(stores).run()
+      #expect(retried == .alreadyMigrated)
 
       #expect(!exists(stores.old))
+      #expect(!exists(sibling(of: stores.old, named: "default.store-wal")))
+      #expect(!exists(sibling(of: stores.old, named: "default.store-shm")))
       try expectSeededData(at: backupURL(of: stores))
       try expectSeededData(at: stores.new)
+    }
+  }
+
+  @Test("Empty sidecars recreated at the old location don't block a retry or replace the backup's")
+  func retryDiscardsRecreatedSidecars() throws {
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      try blockBackup(of: stores)
+      try migration(stores).run()
+      try FileManager.default.removeItem(at: backupURL(of: stores))
+      let backupName = backupURL(of: stores).lastPathComponent
+      let backupWAL = sibling(of: stores.old, named: "\(backupName)-wal")
+      let backupSHM = sibling(of: stores.old, named: "\(backupName)-shm")
+      let kept = Data("kept".utf8)
+      try kept.write(to: backupWAL)
+      try kept.write(to: backupSHM)
+      try Data().write(to: sibling(of: stores.old, named: "default.store-wal"))
+      try Data().write(to: sibling(of: stores.old, named: "default.store-shm"))
+
+      let retried = try migration(stores).run()
+
+      #expect(retried == .alreadyMigrated)
+      #expect(!exists(stores.old))
+      #expect(exists(backupURL(of: stores)))
+      #expect(!exists(sibling(of: stores.old, named: "default.store-wal")))
+      #expect(!exists(sibling(of: stores.old, named: "default.store-shm")))
+      let walBytes = try Data(contentsOf: backupWAL)
+      let shmBytes = try Data(contentsOf: backupSHM)
+      #expect(walBytes == kept)
+      #expect(shmBytes == kept)
+    }
+  }
+
+  @Test("A -wal with writes at the old location is never discarded in favor of the backup's")
+  func retryKeepsWALWithWrites() throws {
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      try blockBackup(of: stores)
+      try migration(stores).run()
+      try FileManager.default.removeItem(at: backupURL(of: stores))
+      let wal = sibling(of: stores.old, named: "default.store-wal")
+      let writes = Data("new writes".utf8)
+      try writes.write(to: wal)
+
+      let retried = try migration(stores).run()
+
+      #expect(retried == .alreadyMigrated)
+      #expect(exists(stores.old))
+      let walBytes = try Data(contentsOf: wal)
+      #expect(walBytes == writes)
     }
   }
 
