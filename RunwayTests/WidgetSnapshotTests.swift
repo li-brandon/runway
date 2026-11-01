@@ -66,13 +66,13 @@ struct WidgetSnapshotTests {
     to directory: URL
   ) throws {
     let dimensions = size(of: layout)
-    let renderer = ImageRenderer(
-      content: content
-        .padding(16)
-        .frame(width: dimensions.width, height: dimensions.height)
-        .background(scheme == .dark ? Color.black : Color.white)
-        .environment(\.colorScheme, scheme)
-    )
+    let framed =
+      content
+      .padding(16)
+      .frame(width: dimensions.width, height: dimensions.height)
+      .background(scheme == .dark ? Color.black : Color.white)
+      .environment(\.colorScheme, scheme)
+    let renderer = ImageRenderer(content: framed)
     renderer.scale = 3
     let data = try #require(renderer.uiImage?.pngData())
     try data.write(to: directory.appending(path: "480-widget-\(layout.rawValue)-\(name).png"))
