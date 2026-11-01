@@ -199,11 +199,12 @@ paths or Core Data shims.
 2. Pick an iPhone simulator (for example, iPhone 17) from the run destination menu.
 3. Press **Run** (⌘R).
 
-To run the tests, press ⌘U, or choose **Product › Test**. The tests use Swift Testing and an
-in-memory SwiftData store, so they never touch the data on your simulator.
+To run the tests, press ⌘U, or choose **Product › Test**. The tests use Swift Testing with
+in-memory stores or stores in a temp directory, so they never touch the data on your simulator.
 
 To run on a physical iPhone, select your own team under **Signing & Capabilities**. The project
-uses automatic signing and does not commit a development team.
+uses automatic signing and does not commit a development team. Your team also needs the
+`group.com.librandon.runway.shared` App Group, which Xcode registers for the bundle ID.
 
 From the command line:
 
@@ -220,7 +221,7 @@ xcodebuild test \
 | --- | --- |
 | `Runway/App` | App entry point, first-launch routing, launch arguments |
 | `Runway/Models` | SwiftData models (`RunwaySchemaV1`) |
-| `Runway/Persistence` | Model container setup and migration plan |
+| `Runway/Persistence` | Model container setup, migration plan, and the move to the App Group store |
 | `Runway/Money` | Cents ↔ dollars conversion and USD formatting |
 | `Runway/Engine` | Daily allowance and History engines and their mapping from the models |
 | `Runway/Categories` | Category persistence service and pure picker ordering |
@@ -236,6 +237,22 @@ display, and `Double` is never used for money.
 Schema changes go in a new `VersionedSchema` (`RunwaySchemaV2`, …) with a matching stage in
 `RunwayMigrationPlan`. Don't edit `RunwaySchemaV1` once it has shipped. V1 hasn't shipped yet, so
 until the first release it may still be edited in place without a migration.
+
+The store lives in the App Group container, at `Library/Application Support/default.store`, so
+widgets can read it. The first launch after the App Group was added moves an existing store there
+from the app's own Application Support directory. Without an App Group, as in unsigned CI builds,
+or if the move fails, the app uses the old location and logs it. A failed move is retried on the
+next launch.
+
+## Device checks
+
+CI can't run these, so check them on a real iPhone:
+
+- **TestFlight upgrade keeps all data:** with a build from before the App Group installed and real
+  data in it, including expenses, bills, and extra money, update to the new TestFlight build through
+  TestFlight without deleting the app. Check that Today, History, and Settings show everything as
+  before, then force quit and relaunch and check again. Add an expense, relaunch, and check it's
+  still there. Then check that Export, Import, and Reset still work.
 
 ## Code style
 
