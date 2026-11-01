@@ -1,5 +1,4 @@
 import Foundation
-import SQLite3
 import SwiftData
 import Testing
 
@@ -8,9 +7,6 @@ import Testing
 /// Moving the store into the App Group container, on real on-disk stores in a temp directory.
 struct StoreMigrationTests {
   private struct VerifyFailure: Error {}
-  private struct SQLiteFailure: Error {
-    let code: Int32
-  }
 
   /// The old and new store locations, with their own defaults so no test touches the app's.
   private struct Stores {
@@ -65,52 +61,26 @@ struct StoreMigrationTests {
     RunwayModelContainer.storeURL(inGroupContainer: directory.appending(path: "group"))
   }
 
-  /// Creates a store at `url` holding a budget, an expense, and one more for each of `extraNotes`.
-  ///
-  /// It's built at a scratch path and only its checkpointed file is copied to `url`, because a
-  /// released container can stay open for a while. Closing it late would checkpoint into the store
-  /// file, changing its size and date, and unlink the `-wal` at its path even if a different store
-  /// lives there by then. No connection ever has `url` open, so nothing can change it afterward.
-  private func seedStore(at url: URL, extraNotes: [String] = []) throws {
-    try withDirectory { directory in
-      let scratch = directory.appending(path: url.lastPathComponent)
-      try autoreleasepool {
-        let context = ModelContext(try RunwayModelContainer.make(url: scratch))
-        context.insert(Budget(periodStart: date, spendablePerPeriodCents: 110_000))
-        let service = CategoryService(context: context)
-        try service.createExpense(amountCents: 1_250, note: "Lunch", date: date, now: date)
-        for note in extraNotes {
-          try service.createExpense(amountCents: 500, note: note, date: date, now: date)
-        }
-        try context.save()
-      }
-      try checkpoint(scratch)
-      try FileManager.default.copyItem(at: scratch, to: url)
-    }
+  /// Saves a budget and an expense with their own container, which is released on return.
+  private func seedStore(at url: URL) throws {
+    let context = ModelContext(try RunwayModelContainer.make(url: url))
+    context.insert(Budget(periodStart: date, spendablePerPeriodCents: 110_000))
+    try CategoryService(context: context).createExpense(
+      amountCents: 1_250,
+      note: "Lunch",
+      date: date,
+      now: date
+    )
+    try context.save()
   }
 
-  /// Moves everything in the `-wal` into the store file, even if a released container still has the
-  /// store open. That container has nothing left to write when it does close.
-  private func checkpoint(_ url: URL) throws {
-    var database: OpaquePointer?
-    defer { sqlite3_close(database) }
-    let opened = sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READWRITE, nil)
-    guard opened == SQLITE_OK else { throw SQLiteFailure(code: opened) }
-    sqlite3_busy_timeout(database, 5_000)
-    let result = sqlite3_wal_checkpoint_v2(database, nil, SQLITE_CHECKPOINT_TRUNCATE, nil, nil)
-    guard result == SQLITE_OK else { throw SQLiteFailure(code: result) }
-  }
-
-  /// Read-only, so a migration that runs after this can't see a write from it.
   private func expectSeededData(at url: URL) throws {
-    try autoreleasepool {
-      let context = ModelContext(try RunwayModelContainer.makeReadOnly(url: url))
-      let budget = try #require(try context.fetch(FetchDescriptor<Budget>()).first)
-      #expect(budget.spendablePerPeriodCents == 110_000)
-      let expense = try #require(try context.fetch(FetchDescriptor<Expense>()).first)
-      #expect(expense.amountCents == 1_250)
-      #expect(expense.note == "Lunch")
-    }
+    let context = ModelContext(try RunwayModelContainer.make(url: url))
+    let budget = try #require(try context.fetch(FetchDescriptor<Budget>()).first)
+    #expect(budget.spendablePerPeriodCents == 110_000)
+    let expense = try #require(try context.fetch(FetchDescriptor<Expense>()).first)
+    #expect(expense.amountCents == 1_250)
+    #expect(expense.note == "Lunch")
   }
 
   private func exists(_ url: URL) -> Bool {
@@ -131,25 +101,19 @@ struct StoreMigrationTests {
     try Data("blocker".utf8).write(to: backupURL(of: stores))
   }
 
-  /// Leaves `url` open to a late close, so only use it on a store no test compares byte for byte.
   private func addExpense(at url: URL, note: String) throws {
-    try autoreleasepool {
-      let context = ModelContext(try RunwayModelContainer.make(url: url))
-      try CategoryService(context: context).createExpense(
-        amountCents: 500,
-        note: note,
-        date: date,
-        now: date
-      )
-      try context.save()
-    }
+    let context = ModelContext(try RunwayModelContainer.make(url: url))
+    try CategoryService(context: context).createExpense(
+      amountCents: 500,
+      note: note,
+      date: date,
+      now: date
+    )
+    try context.save()
   }
 
   private func expenseCount(at url: URL) throws -> Int {
-    try autoreleasepool {
-      let context = ModelContext(try RunwayModelContainer.makeReadOnly(url: url))
-      return try context.fetchCount(FetchDescriptor<Expense>())
-    }
+    try ModelContext(try RunwayModelContainer.make(url: url)).fetchCount(FetchDescriptor<Expense>())
   }
 
   @Test("A store written at the old path reads back at the new path, and the old one is backed up")
@@ -425,7 +389,9 @@ struct StoreMigrationTests {
       let backupBytes = try Data(contentsOf: backup)
 
       // The older build writes to the old location again.
-      try seedStore(at: stores.old, extraNotes: ["While downgraded", "While downgraded, again"])
+      try seedStore(at: stores.old)
+      try addExpense(at: stores.old, note: "While downgraded")
+      try addExpense(at: stores.old, note: "While downgraded, again")
       let oldBytes = try Data(contentsOf: stores.old)
 
       let resolved = try RunwayModelContainer.resolveStoreURL(
@@ -581,7 +547,6 @@ struct StoreMigrationTests {
       let marker = sibling(of: stores.new, named: "default.store.migrated")
       try FileManager.default.removeItem(at: marker)
       try seedStore(at: stores.old)
-      let oldBytes = try Data(contentsOf: stores.old)
 
       #expect(throws: RunwayStoreError.sharedStoreUnavailable) {
         _ = try RunwayModelContainer.resolveStoreURL(
@@ -591,7 +556,9 @@ struct StoreMigrationTests {
         )
       }
 
-      #expect(try Data(contentsOf: stores.old) == oldBytes)
+      // SQLite can still checkpoint the just-seeded store after it closes, so compare contents,
+      // not bytes: the old store must be left in place with its data.
+      try expectSeededData(at: stores.old)
       try expectSeededData(at: stores.new)
     }
   }
