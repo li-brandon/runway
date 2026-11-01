@@ -233,8 +233,8 @@ jobs:
                   f.write(f"| {name} | {value} |\n")
           PY
           # Per-test timings that tests print as "TIMING ..." lines.
-          xcrun xcresulttool get log --type console --path "$BUNDLE" 2>/dev/null \
-            | grep -o 'TIMING [^"\\]*' | sort -u
+          find "$HOME/Library/Developer" -name runway-test-timings.txt -exec cat {} + 2>/dev/null \
+            | sort -u
           exit 0
 
       - name: Build Release for simulator

@@ -255,7 +255,17 @@ struct WidgetRedactionRenderTests {
   /// Runs `body`, reports how long it took, and fails the test if it ran over the budget.
   private func timed(_ name: String, _ body: () throws -> Void) throws {
     let duration = try ContinuousClock().measure(body)
-    print("TIMING WidgetRedactionRenderTests/\(name) own work: \(duration)")
+    let line = "TIMING WidgetRedactionRenderTests/\(name) own work: \(duration)"
+    print(line)
+    // CI reads this file from the simulator's sandbox, since test output doesn't reach its log.
+    let log = FileManager.default.temporaryDirectory.appending(path: "runway-test-timings.txt")
+    if let handle = try? FileHandle(forWritingTo: log) {
+      defer { try? handle.close() }
+      _ = try? handle.seekToEnd()
+      try? handle.write(contentsOf: Data((line + "\n").utf8))
+    } else {
+      try? Data((line + "\n").utf8).write(to: log)
+    }
     let isWithinBudget = duration < .seconds(10)
     #expect(isWithinBudget)
   }
