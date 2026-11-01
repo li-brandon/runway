@@ -10,6 +10,8 @@ struct HistoryView: View {
   /// The time History treats as now; Today passes its own, fixed for screenshots.
   let now: Date
   let screenshotScenario: ScreenshotScenario?
+  /// Whether one of this screen's editors is open, so a widget's link can leave it alone.
+  @Binding var presentsSheet: Bool
 
   @Environment(\.modelContext) private var modelContext
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -35,9 +37,15 @@ struct HistoryView: View {
   @State private var errorMessage: String?
 
   // Explicit because the private `@Query` makes the memberwise initializer private.
-  init(budget: Budget, now: Date, screenshotScenario: ScreenshotScenario? = nil) {
+  init(
+    budget: Budget,
+    now: Date,
+    presentsSheet: Binding<Bool>,
+    screenshotScenario: ScreenshotScenario? = nil
+  ) {
     self.budget = budget
     self.now = now
+    _presentsSheet = presentsSheet
     self.screenshotScenario = screenshotScenario
   }
 
@@ -148,6 +156,12 @@ struct HistoryView: View {
         try await Task.sleep(for: .seconds(delay))
         undoSlot.expire(at: deadline)
       } catch {}
+    }
+    .onChange(
+      of: editing != nil || editingExtra != nil || editingBillPayment != nil,
+      initial: true
+    ) { _, isPresented in
+      presentsSheet = isPresented
     }
     .sheet(item: $editing) { expense in
       ExpenseEditView(
