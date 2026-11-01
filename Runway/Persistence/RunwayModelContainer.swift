@@ -5,6 +5,11 @@ import os
 enum RunwayStoreError: Error, Equatable {
   /// The shared store doesn't exist yet, or hasn't finished moving there.
   case storeNotReady
+  /// The store already moved to the App Group container, but that store can't be reached now.
+  /// Opening the old location instead would show the user an empty or out-of-date app.
+  case sharedStoreUnavailable
+  /// The copy opened but doesn't hold the same number of rows of every model as the original.
+  case migrationCountMismatch(expected: [String: Int], found: [String: Int])
 }
 
 /// Builds the app's SwiftData container. Data stays on device; CloudKit sync is off.
@@ -39,7 +44,11 @@ enum RunwayModelContainer {
   /// in-memory store (tests, screenshots). Only the app calls this; widgets use `makeReadOnly()`.
   static func make(inMemory: Bool) throws -> ModelContainer {
     guard inMemory else {
-      let url = resolveStoreURL(shared: sharedStoreURL, legacy: legacyStoreURL)
+      let url = try resolveStoreURL(
+        shared: sharedStoreURL,
+        legacy: legacyStoreURL,
+        defaults: .standard
+      )
       try FileManager.default.createDirectory(
         at: url.deletingLastPathComponent(),
         withIntermediateDirectories: true
@@ -92,15 +101,24 @@ enum RunwayModelContainer {
   }
 
   /// The location to open: `shared` once any existing store has moved there, otherwise `legacy`. A
-  /// failed move leaves the store at `legacy`, and the next launch tries again.
-  static func resolveStoreURL(shared: URL?, legacy: URL) -> URL {
+  /// failed move leaves the store at `legacy`, and the next launch tries again. Throws
+  /// `sharedStoreUnavailable` rather than fall back once a move has finished, because the user's
+  /// data is no longer at `legacy`.
+  static func resolveStoreURL(shared: URL?, legacy: URL, defaults: UserDefaults) throws -> URL {
     guard let shared else {
+      guard !StoreMigration.isRecordedComplete(in: defaults) else {
+        logger.error("App Group container unavailable after the store moved there")
+        throw RunwayStoreError.sharedStoreUnavailable
+      }
       logger.notice("App Group container unavailable; using the default store location")
       return legacy
     }
     do {
-      try StoreMigration(oldStoreURL: legacy, newStoreURL: shared).run()
+      try StoreMigration(oldStoreURL: legacy, newStoreURL: shared, defaults: defaults).run()
       return shared
+    } catch RunwayStoreError.sharedStoreUnavailable {
+      logger.error("The moved store is missing from the App Group container")
+      throw RunwayStoreError.sharedStoreUnavailable
     } catch {
       let reason = String(describing: error)
       logger.error("Store migration failed; using the old location: \(reason, privacy: .public)")
@@ -108,20 +126,31 @@ enum RunwayModelContainer {
     }
   }
 
-  /// Throws unless the store at `url` opens, migrating its schema if needed, and every model can
-  /// be read. The container is released on return.
-  static func verifyStore(at url: URL) throws {
-    let context = ModelContext(try make(url: url))
-    for model in RunwaySchemaV1.models {
-      try checkReadable(model, in: context)
-    }
+  /// Per-model row counts of the store at `url`, migrating its schema if needed. Throws unless it
+  /// opens and every model can be read. The container is released on return.
+  static func storeCounts(at url: URL) throws -> [String: Int] {
+    try counts(in: ModelContext(try make(url: url)))
   }
 
-  private static func checkReadable<M: PersistentModel>(
+  /// Per-model row counts of the existing store at `url`, opened read-only. The container is
+  /// released on return.
+  static func readOnlyStoreCounts(at url: URL) throws -> [String: Int] {
+    try counts(in: ModelContext(try makeReadOnly(url: url)))
+  }
+
+  private static func counts(in context: ModelContext) throws -> [String: Int] {
+    var counts: [String: Int] = [:]
+    for model in RunwaySchemaV1.models {
+      counts[String(describing: model)] = try count(model, in: context)
+    }
+    return counts
+  }
+
+  private static func count<M: PersistentModel>(
     _ type: M.Type,
     in context: ModelContext
-  ) throws {
-    _ = try context.fetchCount(FetchDescriptor<M>())
+  ) throws -> Int {
+    try context.fetchCount(FetchDescriptor<M>())
   }
 
   private static func make(

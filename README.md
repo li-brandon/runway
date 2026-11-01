@@ -240,9 +240,16 @@ until the first release it may still be edited in place without a migration.
 
 The store lives in the App Group container, at `Library/Application Support/default.store`, so
 widgets can read it. The first launch after the App Group was added moves an existing store there
-from the app's own Application Support directory. Without an App Group, as in unsigned CI builds,
-or if the move fails, the app uses the old location and logs it. A failed move is retried on the
-next launch.
+from the app's own Application Support directory, and only counts as finished once every model has
+the same row count in the copy as in the original. The old store is then renamed to
+`default-premigration-<date>.store` rather than deleted. A store that later appears at the old
+location, as after a TestFlight downgrade, is left alone and isn't merged in.
+
+Before any move has finished, the app uses the old location and logs it if there's no App Group, as
+in unsigned CI builds, or if the move fails. A failed move is retried on the next launch. Once a move
+has finished, which is recorded in `UserDefaults.standard` as well as next to the store, losing the
+App Group fails the launch with `RunwayStoreError.sharedStoreUnavailable` instead of showing an
+empty app.
 
 ## Device checks
 
@@ -253,6 +260,9 @@ CI can't run these, so check them on a real iPhone:
   TestFlight without deleting the app. Check that Today, History, and Settings show everything as
   before, then force quit and relaunch and check again. Add an expense, relaunch, and check it's
   still there. Then check that Export, Import, and Reset still work.
+- **Downgrade and upgrade keep all data:** after that upgrade, install the older build, add data,
+  then update again. Check that the data from before the downgrade is all there, and that the old
+  location still has the store the older build wrote.
 
 ## Code style
 
