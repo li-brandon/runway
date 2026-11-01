@@ -205,6 +205,10 @@ struct PrivacyDataView: View {
     do {
       try DataReset.reset(in: modelContext)
       dataDidReplace()
+    } catch DataResetError.leftoverFilesRemain {
+      // The store did reset, so the views still have to drop their deleted models. Rebuilding
+      // dismisses this screen along with any alert on it, so the failure is only logged.
+      dataDidReplace()
     } catch {
       errorMessage = error.localizedDescription
     }

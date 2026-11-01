@@ -645,7 +645,7 @@ struct StoreMigrationTests {
       do {
         let context = ModelContext(try RunwayModelContainer.make(url: new))
         exported = try DataExport.snapshot(of: context, now: date)
-        try DataReset.reset(in: context)
+        try DataReset.reset(in: context, legacyStoreURL: stores.old)
       }
       do {
         let context = ModelContext(try RunwayModelContainer.make(url: new))
@@ -656,6 +656,158 @@ struct StoreMigrationTests {
 
       let context = ModelContext(try RunwayModelContainer.make(url: new))
       #expect(try DataExport.snapshot(of: context, now: date) == exported)
+    }
+  }
+
+  /// Gives the migration's backup the sidecars and support directory a real one can have.
+  private func addBackupSidecars(_ stores: Stores) throws -> [URL] {
+    let backup = backupURL(of: stores)
+    let stem = backup.deletingPathExtension().lastPathComponent
+    let support = sibling(of: stores.old, named: ".\(stem)_SUPPORT/_EXTERNAL_DATA")
+    try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+    try Data("asset".utf8).write(to: support.appending(path: "asset"))
+    let sidecars = ["-wal", "-shm"].map {
+      sibling(of: backup, named: backup.lastPathComponent + $0)
+    }
+    for sidecar in sidecars {
+      try Data("sidecar".utf8).write(to: sidecar)
+    }
+    return [backup, sibling(of: stores.old, named: ".\(stem)_SUPPORT")] + sidecars
+  }
+
+  private func namesAtOldLocation(_ stores: Stores) throws -> Set<String> {
+    let names = try FileManager.default.contentsOfDirectory(
+      atPath: stores.old.deletingLastPathComponent().path
+    )
+    return Set(names)
+  }
+
+  @Test("Reset after a migration erases backups and a changed old store, and the live store opens")
+  func resetErasesLeftovers() throws {
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      try migration(stores).run()
+      _ = try addBackupSidecars(stores)
+      // A downgrade recreated the old store, with its external storage.
+      try seedStore(at: stores.old)
+      let oldSupport = sibling(of: stores.old, named: ".default_SUPPORT")
+      try FileManager.default.createDirectory(at: oldSupport, withIntermediateDirectories: true)
+      try Data("asset".utf8).write(to: oldSupport.appending(path: "asset"))
+      let unrelated = sibling(of: stores.old, named: "unrelated.txt")
+      try Data("keep".utf8).write(to: unrelated)
+
+      do {
+        let context = ModelContext(try RunwayModelContainer.make(url: stores.new))
+        try DataReset.reset(in: context, legacyStoreURL: stores.old)
+      }
+
+      let remaining = try namesAtOldLocation(stores)
+      #expect(remaining == ["unrelated.txt"])
+      #expect(exists(stores.new))
+      #expect(StoreMigration.isComplete(newStoreURL: stores.new))
+      let context = ModelContext(try RunwayModelContainer.make(url: stores.new))
+      let expenses = try context.fetchCount(FetchDescriptor<Expense>())
+      let categories = try CategoryService(context: context).categories()
+      #expect(expenses == 0)
+      #expect(categories.map(\.name) == CategoryService.defaultNames)
+
+      let resolved = try RunwayModelContainer.resolveStoreURL(
+        shared: stores.new,
+        legacy: stores.old,
+        defaults: stores.defaults
+      )
+      #expect(resolved == stores.new)
+    }
+  }
+
+  @Test("A failed reset save deletes neither the backup nor the old store")
+  func failedResetKeepsLeftovers() throws {
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      try migration(stores).run()
+      let backupFiles = try addBackupSidecars(stores)
+      try seedStore(at: stores.old)
+
+      let context = ModelContext(try RunwayModelContainer.make(url: stores.new))
+      #expect(throws: VerifyFailure.self) {
+        try DataReset.reset(in: context, legacyStoreURL: stores.old) { _ in
+          throw VerifyFailure()
+        }
+      }
+
+      for file in backupFiles + [stores.old] {
+        #expect(exists(file))
+      }
+      let expenses = try context.fetchCount(FetchDescriptor<Expense>())
+      #expect(expenses == 1)
+    }
+  }
+
+  @Test("When the app is running from the old location, reset keeps that store and its sidecars")
+  func resetKeepsLiveStoreAtOldLocation() throws {
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      let backup = backupURL(of: stores)
+      try Data("backup".utf8).write(to: backup)
+
+      do {
+        let context = ModelContext(try RunwayModelContainer.make(url: stores.old))
+        try DataReset.reset(in: context, legacyStoreURL: stores.old)
+      }
+
+      #expect(!exists(backup))
+      #expect(exists(stores.old))
+      let context = ModelContext(try RunwayModelContainer.make(url: stores.old))
+      let expenses = try context.fetchCount(FetchDescriptor<Expense>())
+      let categories = try CategoryService(context: context).categories()
+      #expect(expenses == 0)
+      #expect(categories.map(\.name) == CategoryService.defaultNames)
+    }
+  }
+
+  @Test("Resetting an in-memory store leaves files on disk alone")
+  func inMemoryResetLeavesDiskAlone() throws {
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      try migration(stores).run()
+      let backupFiles = try addBackupSidecars(stores)
+      try seedStore(at: stores.old)
+
+      let context = ModelContext(try RunwayModelContainer.make(inMemory: true))
+      try DataReset.reset(in: context, legacyStoreURL: stores.old)
+
+      for file in backupFiles + [stores.old] {
+        #expect(exists(file))
+      }
+    }
+  }
+
+  @Test("Files that can't be deleted are reported, the reset still holds, and a retry finishes")
+  func undeletableLeftoversThrow() throws {
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      try migration(stores).run()
+      let oldDirectory = stores.old.deletingLastPathComponent()
+      let fileManager = FileManager.default
+      try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: oldDirectory.path)
+      // Restored here as well so the temp directory can be cleaned up if an expectation throws.
+      defer {
+        try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: oldDirectory.path)
+      }
+
+      let context = ModelContext(try RunwayModelContainer.make(url: stores.new))
+      #expect(throws: DataResetError.leftoverFilesRemain) {
+        try DataReset.reset(in: context, legacyStoreURL: stores.old)
+      }
+
+      let expenses = try context.fetchCount(FetchDescriptor<Expense>())
+      #expect(expenses == 0)
+      #expect(exists(backupURL(of: stores)))
+
+      try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: oldDirectory.path)
+      try DataReset.reset(in: context, legacyStoreURL: stores.old)
+      let remaining = try namesAtOldLocation(stores)
+      #expect(remaining.isEmpty)
     }
   }
 }

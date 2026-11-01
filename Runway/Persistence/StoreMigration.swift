@@ -10,9 +10,9 @@ import os
 /// source of truth, so a failed or interrupted run just starts over. With them the new store is the
 /// source of truth and is never overwritten.
 ///
-/// The old store is never deleted. It's renamed to a dated backup, and only while it still matches
-/// the size and modification date in the marker. A store that has changed since, as after a
-/// downgrade, is left alone.
+/// The migration never deletes the old store; only `DataReset` does, when the user erases their
+/// data. It's renamed to a dated backup, and only while it still matches the size and modification
+/// date in the marker. A store that has changed since, as after a downgrade, is left alone.
 struct StoreMigration {
   enum Outcome: Equatable {
     /// There was no old store, as on a fresh install.
@@ -73,10 +73,26 @@ struct StoreMigration {
   /// The name the store gets when it's backed up at `date`. The sidecars and support directory
   /// follow it, so the backup still opens as a store.
   static func backupURL(for storeURL: URL, date: Date) -> URL {
-    let stem = storeURL.deletingPathExtension().lastPathComponent
     let timestamp = date.ISO8601Format().replacingOccurrences(of: ":", with: "")
     return storeURL.deletingLastPathComponent()
-      .appending(path: "\(stem)-premigration-\(timestamp).\(storeURL.pathExtension)")
+      .appending(path: "\(backupPrefix(for: storeURL))\(timestamp).\(storeURL.pathExtension)")
+  }
+
+  /// Every existing file a migration can leave at the old location: dated backups, including ones
+  /// only partly moved, then the old store itself. The store file comes last, so a run that stops
+  /// partway never leaves a stray `-wal` that a store created later would replay.
+  static func leftovers(atOldStoreURL oldStoreURL: URL) throws -> [URL] {
+    let fileManager = FileManager.default
+    let directory = oldStoreURL.deletingLastPathComponent()
+    guard fileManager.fileExists(atPath: directory.path) else { return [] }
+    let prefix = backupPrefix(for: oldStoreURL)
+    // The support directory's name starts with a dot.
+    let backups = try fileManager.contentsOfDirectory(atPath: directory.path)
+      .filter { $0.hasPrefix(prefix) || $0.hasPrefix(".\(prefix)") }
+      .map { directory.appending(path: $0) }
+    let oldFiles = files(of: oldStoreURL).reversed()
+      .filter { fileManager.fileExists(atPath: $0.path) }
+    return backups + oldFiles
   }
 
   /// On failure the old store is untouched and nothing is left at the new location, except a store
@@ -141,8 +157,12 @@ struct StoreMigration {
     storeURL.deletingLastPathComponent().appending(path: "\(storeURL.lastPathComponent)-wal")
   }
 
+  private static func backupPrefix(for storeURL: URL) -> String {
+    "\(storeURL.deletingPathExtension().lastPathComponent)-premigration-"
+  }
+
   /// The store, its SQLite sidecars, and Core Data's directory for externally stored attributes.
-  private static func files(of storeURL: URL) -> [URL] {
+  static func files(of storeURL: URL) -> [URL] {
     let directory = storeURL.deletingLastPathComponent()
     let name = storeURL.lastPathComponent
     let stem = storeURL.deletingPathExtension().lastPathComponent
