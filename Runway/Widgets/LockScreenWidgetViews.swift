@@ -85,6 +85,16 @@ enum LockScreenText {
   static func statusAccessibilityLabel(_ status: TodayStatus, isPrivate: Bool) -> String {
     accessibilityLabel(status.title, isPrivate: isPrivate, generic: "Budget status")
   }
+
+  /// The color of the amount and status label. Redaction keeps a view's color, so a tinted
+  /// placeholder would show the status.
+  static func statusColor(
+    _ status: TodayStatus,
+    usesStatusColor: Bool,
+    isRedacted: Bool
+  ) -> Color {
+    usesStatusColor && !isRedacted ? status.color : .primary
+  }
 }
 
 /// A lock-screen widget's content. Takes everything as parameters, so CI can render it outside a

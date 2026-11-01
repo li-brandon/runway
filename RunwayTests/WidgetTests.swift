@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 import Testing
 import WidgetKit
 
@@ -216,8 +217,6 @@ struct WidgetTimelineTests {
 }
 
 struct LockScreenWidgetTests {
-  private let statuses: [TodayStatus] = [.normal, .nearLimit, .noAllowance, .over]
-
   private func allowance(
     today: Int = 4_250,
     period: Int = 48_000,
@@ -360,7 +359,7 @@ struct LockScreenWidgetTests {
 
   @Test("Unredacted, the status label is the status title")
   func unredactedStatusLabel() {
-    for status in statuses {
+    for status in TodayStatus.allCases {
       let label = LockScreenText.statusAccessibilityLabel(status, isPrivate: false)
       #expect(label == status.title)
     }
@@ -368,11 +367,44 @@ struct LockScreenWidgetTests {
 
   @Test("Redacted, the status label names no status")
   func redactedStatusLabel() {
-    for status in statuses {
+    for status in TodayStatus.allCases {
       let label = LockScreenText.statusAccessibilityLabel(status, isPrivate: true)
       #expect(label == "Budget status")
-      for other in statuses {
+      for other in TodayStatus.allCases {
         #expect(!label.contains(other.title))
+      }
+    }
+  }
+
+  @Test("Unredacted in full color, the status color shows")
+  func unredactedStatusColor() {
+    for status in TodayStatus.allCases {
+      let color = LockScreenText.statusColor(status, usesStatusColor: true, isRedacted: false)
+      #expect(color == status.color)
+    }
+    #expect(TodayStatus.over.color != .primary)
+    #expect(TodayStatus.nearLimit.color != .primary)
+    #expect(TodayStatus.noAllowance.color != .primary)
+  }
+
+  @Test("Tinted or clear, the status color doesn't apply")
+  func tintedStatusColor() {
+    for status in TodayStatus.allCases {
+      let color = LockScreenText.statusColor(status, usesStatusColor: false, isRedacted: false)
+      #expect(color == .primary)
+    }
+  }
+
+  @Test("Redacted, every status is primary, so placeholders don't show the status")
+  func redactedStatusColor() {
+    for status in TodayStatus.allCases {
+      for usesStatusColor in [true, false] {
+        let color = LockScreenText.statusColor(
+          status,
+          usesStatusColor: usesStatusColor,
+          isRedacted: true
+        )
+        #expect(color == .primary)
       }
     }
   }

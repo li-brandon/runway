@@ -169,7 +169,11 @@ struct RunwayWidgetContent: View {
   }
 
   private func statusColor(_ allowance: WidgetAllowance) -> Color {
-    usesStatusColor ? allowance.status.color : .primary
+    LockScreenText.statusColor(
+      allowance.status,
+      usesStatusColor: usesStatusColor,
+      isRedacted: isRedacted
+    )
   }
 
   private func message(
