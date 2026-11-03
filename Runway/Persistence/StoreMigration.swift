@@ -170,9 +170,7 @@ struct StoreMigration {
       waitUntilClosed(newStoreURL, closeDeadline: closeDeadline)
       try writeMarker(Marker(migratedStore: migratedStore))
     } catch {
-      if waitUntilClosed(newStoreURL, closeDeadline: closeDeadline) {
-        try? removeNewFiles()
-      }
+      removeNewFilesOnceClosed(closeDeadline: closeDeadline)
       throw error
     }
     recordComplete()
@@ -302,10 +300,35 @@ struct StoreMigration {
       || (file == Self.walURL(of: oldStoreURL) && (try? Self.stamp(of: file))?.size == 0)
   }
 
+  /// A file that a closing connection deletes between the check and the removal is already gone,
+  /// so it doesn't stop the files after it from being removed.
   private func removeNewFiles() throws {
     let fileManager = FileManager.default
     for file in Self.files(of: newStoreURL) where fileManager.fileExists(atPath: file.path) {
-      try fileManager.removeItem(at: file)
+      do {
+        try fileManager.removeItem(at: file)
+      } catch CocoaError.fileNoSuchFile {}
+    }
+  }
+
+  /// Clears the new location after a failed run, before `run()` throws. A container that counted
+  /// the copy can still be closing once one check finds the store closed, and closing can recreate
+  /// a sidecar, so this checks again until nothing is left, within `closeTimeout` and the run's
+  /// `closeBudget`. A store still open then is left for the next run to clear.
+  private func removeNewFilesOnceClosed(closeDeadline: ContinuousClock.Instant) {
+    let fileManager = FileManager.default
+    let deadline = min(ContinuousClock.now.advanced(by: .seconds(closeTimeout)), closeDeadline)
+    while true {
+      guard Self.waitUntilClosed(newStoreURL, deadline: deadline) else {
+        RunwayModelContainer.logger.notice("A store was still open after waiting for it to close")
+        return
+      }
+      try? removeNewFiles()
+      let isCleared = !Self.files(of: newStoreURL).contains {
+        fileManager.fileExists(atPath: $0.path)
+      }
+      guard !isCleared, ContinuousClock.now < deadline else { return }
+      Thread.sleep(forTimeInterval: 0.02)
     }
   }
 
