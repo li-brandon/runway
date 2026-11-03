@@ -61,7 +61,10 @@ struct StoreMigrationTests {
   /// Waits until every connection to the store has closed and its `-wal` is merged, as the
   /// migration does before it stamps the store.
   private func waitUntilClosed(_ url: URL) -> Bool {
-    StoreMigration.waitUntilClosed(url, deadline: Date.now.addingTimeInterval(closeBudget))
+    StoreMigration.waitUntilClosed(
+      url,
+      deadline: ContinuousClock.now.advanced(by: .seconds(closeBudget))
+    )
   }
 
   private func oldURL(in directory: URL) throws -> URL {
@@ -510,6 +513,36 @@ struct StoreMigrationTests {
       #expect(retried == .alreadyMigrated)
       #expect(!exists(stores.old))
       try expectSeededData(at: backupURL(of: stores))
+    }
+  }
+
+  @Test("A run's waits for an open store all end with its close budget")
+  func closeBudgetBoundsWaits() throws {
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      var connection: OpaquePointer?
+      defer { sqlite3_close(connection) }
+      let opened = sqlite3_open_v2(stores.old.path, &connection, SQLITE_OPEN_READWRITE, nil)
+      #expect(opened == SQLITE_OK)
+      // A read leaves the connection holding its lock on the store until it closes.
+      let read = sqlite3_exec(connection, "SELECT count(*) FROM sqlite_master;", nil, nil, nil)
+      #expect(read == SQLITE_OK)
+
+      var budgeted = migration(stores)
+      budgeted.closeTimeout = 2
+      budgeted.closeBudget = 0.5
+      var outcome: StoreMigration.Outcome?
+      let elapsed = try ContinuousClock().measure {
+        outcome = try budgeted.run()
+      }
+
+      // Each of the two waits for the old store would take `closeTimeout` without the budget. The
+      // tolerance covers the last checks and the store work.
+      let withinBudget = elapsed < .seconds(budgeted.closeBudget + 1.5)
+      #expect(withinBudget)
+      #expect(outcome == .migrated)
+      #expect(exists(stores.old))
+      #expect(!exists(backupURL(of: stores)))
     }
   }
 
