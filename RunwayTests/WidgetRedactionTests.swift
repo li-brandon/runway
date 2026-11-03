@@ -2,9 +2,37 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 import Testing
-import UIKit
 
 @testable import Runway
+
+private let rgbaBitmapInfo =
+  CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+
+/// Draws `image` into a bitmap this function owns, so the bytes never depend on how, or whether,
+/// the image's own storage can be read back.
+func bitmapBytes(of image: CGImage) throws -> Data {
+  let bytesPerRow = image.width * 4
+  let buffer = UnsafeMutableRawBufferPointer.allocate(
+    byteCount: bytesPerRow * image.height,
+    alignment: 4
+  )
+  defer { buffer.deallocate() }
+  buffer.initializeMemory(as: UInt8.self, repeating: 0)
+  let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+  let context = try #require(
+    CGContext(
+      data: buffer.baseAddress,
+      width: image.width,
+      height: image.height,
+      bitsPerComponent: 8,
+      bytesPerRow: bytesPerRow,
+      space: colorSpace,
+      bitmapInfo: rgbaBitmapInfo
+    )
+  )
+  context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+  return Data(buffer)
+}
 
 private let amounts: [(today: Int, period: Int)] = [
   (0, 0),
@@ -130,8 +158,37 @@ struct WidgetRedactedTextTests {
   }
 }
 
-/// Renders widget content both at its ideal size, where its width follows its text, and in a frame
-/// the size of a real widget, where the frame hides that width and only the pixels can differ.
+struct WidgetBitmapBytesTests {
+  @Test("Bitmap bytes keep each pixel's value, top row first")
+  func knownPixels() throws {
+    let topRow: [UInt8] = [0x12, 0x34, 0x56, 0xFF, 0x78, 0x9A, 0xBC, 0xFF]
+    let bottomRow: [UInt8] = [0xDE, 0xF0, 0x11, 0xFF, 0x22, 0x33, 0x44, 0xFF]
+    let pixels = topRow + bottomRow
+    let provider = try #require(CGDataProvider(data: Data(pixels) as CFData))
+    let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+    let image = try #require(
+      CGImage(
+        width: 2,
+        height: 2,
+        bitsPerComponent: 8,
+        bitsPerPixel: 32,
+        bytesPerRow: 8,
+        space: colorSpace,
+        bitmapInfo: CGBitmapInfo(rawValue: rgbaBitmapInfo),
+        provider: provider,
+        decode: nil,
+        shouldInterpolate: false,
+        intent: .defaultIntent
+      )
+    )
+    let bytes = try bitmapBytes(of: image)
+    #expect(bytes == Data(pixels))
+  }
+}
+
+/// Measures widget content at its ideal size, where its width follows its text, and renders it in
+/// a frame the size of a real widget, where the frame hides that width and only the pixels can
+/// differ.
 @MainActor
 struct WidgetRedactionRenderTests {
   private struct Rendering: Equatable {
@@ -141,16 +198,25 @@ struct WidgetRedactionRenderTests {
 
   private func render(_ content: some View, in frame: CGSize) throws -> Rendering {
     let themed = content.environment(\.colorScheme, .light)
-    let ideal = ImageRenderer(content: themed)
-    ideal.scale = 3
-    let idealImage = try #require(ideal.uiImage)
+    // The renderer reports the size up front, and not calling its draw callback skips the pixels.
+    var measuredSize: CGSize?
+    ImageRenderer(content: themed).render { size, _ in measuredSize = size }
+    let idealSize = try #require(measuredSize)
     let framed = ImageRenderer(content: themed.frame(width: frame.width, height: frame.height))
-    framed.scale = 3
-    // Raw pixels rather than PNG: `pngData()` can return nil for renderer-backed images.
+    framed.scale = 1
     let framedImage = try #require(framed.cgImage)
-    let pixels = try #require(framedImage.dataProvider?.data)
-    let framedData = pixels as Data
-    return Rendering(idealSize: idealImage.size, framedImage: framedData)
+    return Rendering(idealSize: idealSize, framedImage: try bitmapBytes(of: framedImage))
+  }
+
+  private var redactedWidget: some View {
+    RunwayWidgetContent(
+      entry: entry(
+        allowance(today: 4_250, period: 48_000, status: .normal),
+        amountsArePrivate: true
+      ),
+      layout: .small
+    )
+    .redacted(reason: .privacy)
   }
 
   private func entry(
@@ -186,93 +252,160 @@ struct WidgetRedactionRenderTests {
     }
   }
 
+  /// Renders a redacted widget once per process, so the first render's one-time warm-up isn't
+  /// charged to whichever test happens to run first.
+  private static let warmUp: Void = {
+    let tests = WidgetRedactionRenderTests()
+    let size = tests.frame(of: RunwayWidgetContent.Layout.small)
+    let renderer = ImageRenderer(
+      content: tests.redactedWidget
+        .environment(\.colorScheme, .light)
+        .frame(width: size.width, height: size.height)
+    )
+    renderer.scale = 1
+    _ = renderer.cgImage
+  }()
+
+  /// Runs `body`, reports how long it took, and fails the test if it ran over the budget.
+  private func timed(_ name: String, _ body: () throws -> Void) throws {
+    _ = Self.warmUp
+    let duration = try ContinuousClock().measure(body)
+    let line = "TIMING WidgetRedactionRenderTests/\(name) own work: \(duration)"
+    print(line)
+    // CI prints these from the result bundle, since test output doesn't reach its log.
+    Attachment.record(line, named: "TIMING-\(name).txt")
+    let isWithinBudget = duration < .seconds(10)
+    #expect(isWithinBudget)
+  }
+
   @Test("Redacted, home-screen widgets render the same for every status and amount")
   func homeScreen() throws {
-    for layout in RunwayWidgetContent.Layout.allCases {
-      var first: Rendering?
-      for figures in allFigures {
-        let rendering = try render(
-          RunwayWidgetContent(entry: entry(figures, amountsArePrivate: true), layout: layout)
-            .redacted(reason: .privacy),
-          in: frame(of: layout)
-        )
-        let expected = first ?? rendering
-        first = expected
-        #expect(rendering.idealSize == expected.idealSize)
-        #expect(rendering.framedImage == expected.framedImage)
+    try timed("homeScreen") {
+      for layout in RunwayWidgetContent.Layout.allCases {
+        var first: Rendering?
+        for figures in allFigures {
+          let rendering = try render(
+            RunwayWidgetContent(entry: entry(figures, amountsArePrivate: true), layout: layout)
+              .redacted(reason: .privacy),
+            in: frame(of: layout)
+          )
+          let expected = first ?? rendering
+          first = expected
+          #expect(rendering.idealSize == expected.idealSize)
+          #expect(rendering.framedImage == expected.framedImage)
+        }
       }
     }
   }
 
   @Test("Redacted, lock-screen widgets render the same for every status and amount")
   func lockScreen() throws {
-    for family in LockScreenWidgetContent.Family.allCases {
-      var first: Rendering?
-      for figures in allFigures {
-        let rendering = try render(
-          LockScreenWidgetContent(entry: entry(figures, amountsArePrivate: true), family: family)
-            .redacted(reason: .privacy),
-          in: frame(of: family)
-        )
-        let expected = first ?? rendering
-        first = expected
-        #expect(rendering.idealSize == expected.idealSize)
-        #expect(rendering.framedImage == expected.framedImage)
+    try timed("lockScreen") {
+      for family in LockScreenWidgetContent.Family.allCases {
+        var first: Rendering?
+        for figures in allFigures {
+          let rendering = try render(
+            LockScreenWidgetContent(entry: entry(figures, amountsArePrivate: true), family: family)
+              .redacted(reason: .privacy),
+            in: frame(of: family)
+          )
+          let expected = first ?? rendering
+          first = expected
+          #expect(rendering.idealSize == expected.idealSize)
+          #expect(rendering.framedImage == expected.framedImage)
+        }
       }
+    }
+  }
+
+  @Test("The same redacted widget renders equal bytes, and one changed byte breaks the equality")
+  func oneByteMismatch() throws {
+    try timed("oneByteMismatch") {
+      let size = frame(of: RunwayWidgetContent.Layout.small)
+      let first = try render(redactedWidget, in: size)
+      let second = try render(redactedWidget, in: size)
+      #expect(first == second)
+      // Blank bitmaps would compare equal whatever the widget drew.
+      let hasContent = first.framedImage.contains { $0 != 0 }
+      #expect(hasContent)
+
+      var changedBytes = first.framedImage
+      changedBytes[changedBytes.startIndex + changedBytes.count / 2] ^= 1
+      let changed = Rendering(idealSize: first.idealSize, framedImage: changedBytes)
+      #expect(changed != first)
+    }
+  }
+
+  @Test("A 1pt mark on a redacted widget changes its rendered bytes")
+  func onePointMismatch() throws {
+    try timed("onePointMismatch") {
+      let size = frame(of: RunwayWidgetContent.Layout.small)
+      let plain = try render(redactedWidget, in: size)
+      let marked = try render(
+        redactedWidget.overlay(alignment: .topLeading) {
+          Rectangle().fill(.red).frame(width: 1, height: 1)
+        },
+        in: size
+      )
+      #expect(plain.framedImage != marked.framedImage)
     }
   }
 
   @Test("Unredacted, a home-screen widget's rendering follows its amount")
   func unredactedWidth() throws {
-    let layout = RunwayWidgetContent.Layout.small
-    let small = try render(
-      RunwayWidgetContent(
-        entry: entry(
-          allowance(today: 0, period: 0, status: .normal),
-          amountsArePrivate: true
+    try timed("unredactedWidth") {
+      let layout = RunwayWidgetContent.Layout.small
+      let small = try render(
+        RunwayWidgetContent(
+          entry: entry(
+            allowance(today: 0, period: 0, status: .normal),
+            amountsArePrivate: true
+          ),
+          layout: layout
         ),
-        layout: layout
-      ),
-      in: frame(of: layout)
-    )
-    let large = try render(
-      RunwayWidgetContent(
-        entry: entry(
-          allowance(today: 12_345_678, period: 186_049_248, status: .normal),
-          amountsArePrivate: true
+        in: frame(of: layout)
+      )
+      let large = try render(
+        RunwayWidgetContent(
+          entry: entry(
+            allowance(today: 12_345_678, period: 186_049_248, status: .normal),
+            amountsArePrivate: true
+          ),
+          layout: layout
         ),
-        layout: layout
-      ),
-      in: frame(of: layout)
-    )
-    // The widget frame clamps the ideal size, so compare pixels: this proves the redaction
-    // comparisons above would catch a difference.
-    #expect(small.framedImage != large.framedImage)
+        in: frame(of: layout)
+      )
+      // The widget frame clamps the ideal size, so compare pixels: this proves the redaction
+      // comparisons above would catch a difference.
+      #expect(small.framedImage != large.framedImage)
+    }
   }
 
   @Test("With the app lock off, widgets keep their real figures on a locked device")
   func notPrivate() throws {
-    let low = allowance(today: 0, period: 0, status: .noAllowance)
-    let high = allowance(today: 12_345_678, period: 186_049_248, status: .normal)
-    for layout in RunwayWidgetContent.Layout.allCases {
-      let renderings = try [low, high].map { figures in
-        try render(
-          RunwayWidgetContent(entry: entry(figures, amountsArePrivate: false), layout: layout)
-            .redacted(reason: .privacy),
-          in: frame(of: layout)
-        )
+    try timed("notPrivate") {
+      let low = allowance(today: 0, period: 0, status: .noAllowance)
+      let high = allowance(today: 12_345_678, period: 186_049_248, status: .normal)
+      for layout in RunwayWidgetContent.Layout.allCases {
+        let renderings = try [low, high].map { figures in
+          try render(
+            RunwayWidgetContent(entry: entry(figures, amountsArePrivate: false), layout: layout)
+              .redacted(reason: .privacy),
+            in: frame(of: layout)
+          )
+        }
+        #expect(renderings[0].framedImage != renderings[1].framedImage)
       }
-      #expect(renderings[0].framedImage != renderings[1].framedImage)
-    }
-    for family in [LockScreenWidgetContent.Family.rectangular, .inline] {
-      let renderings = try [low, high].map { figures in
-        try render(
-          LockScreenWidgetContent(entry: entry(figures, amountsArePrivate: false), family: family)
-            .redacted(reason: .privacy),
-          in: frame(of: family)
-        )
+      for family in [LockScreenWidgetContent.Family.rectangular, .inline] {
+        let renderings = try [low, high].map { figures in
+          try render(
+            LockScreenWidgetContent(entry: entry(figures, amountsArePrivate: false), family: family)
+              .redacted(reason: .privacy),
+            in: frame(of: family)
+          )
+        }
+        #expect(renderings[0].framedImage != renderings[1].framedImage)
       }
-      #expect(renderings[0].framedImage != renderings[1].framedImage)
     }
   }
 }
