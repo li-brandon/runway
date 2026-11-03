@@ -252,8 +252,23 @@ struct WidgetRedactionRenderTests {
     }
   }
 
+  /// Renders a redacted widget once per process, so the first render's one-time warm-up isn't
+  /// charged to whichever test happens to run first.
+  private static let warmUp: Void = {
+    let tests = WidgetRedactionRenderTests()
+    let size = tests.frame(of: RunwayWidgetContent.Layout.small)
+    let renderer = ImageRenderer(
+      content: tests.redactedWidget
+        .environment(\.colorScheme, .light)
+        .frame(width: size.width, height: size.height)
+    )
+    renderer.scale = 1
+    _ = renderer.cgImage
+  }()
+
   /// Runs `body`, reports how long it took, and fails the test if it ran over the budget.
   private func timed(_ name: String, _ body: () throws -> Void) throws {
+    _ = Self.warmUp
     let duration = try ContinuousClock().measure(body)
     let line = "TIMING WidgetRedactionRenderTests/\(name) own work: \(duration)"
     print(line)
