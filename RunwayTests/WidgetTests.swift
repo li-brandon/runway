@@ -569,7 +569,7 @@ struct WidgetIntegrationTests {
     let uppercase = try #require(URL(string: "RUNWAY://TODAY"))
     for url in [AppDeepLink.todayURL, uppercase] {
       var navigation = TodayNavigation(showsHistory: true)
-      navigation.open(url)
+      navigation.open(url, now: .now)
       #expect(navigation == TodayNavigation())
     }
   }
@@ -583,15 +583,32 @@ struct WidgetIntegrationTests {
     ]
     for before in open {
       var navigation = before
-      navigation.open(AppDeepLink.todayURL)
+      navigation.open(AppDeepLink.todayURL, now: .now)
       #expect(navigation == before)
+    }
+  }
+
+  @Test("The today link stays on History until its undo runs out")
+  func openingLinkKeepsPendingUndo() {
+    let deadline = Date(timeIntervalSince1970: 1_000)
+    let before = TodayNavigation(showsHistory: true, historyUndoExpiresAt: deadline)
+
+    var pending = before
+    pending.open(AppDeepLink.todayURL, now: deadline.addingTimeInterval(-1))
+    #expect(pending == before)
+
+    // Undo refuses at the deadline itself, and the slot may not have cleared after a suspension.
+    for now in [deadline, deadline.addingTimeInterval(60)] {
+      var expired = before
+      expired.open(AppDeepLink.todayURL, now: now)
+      #expect(!expired.showsHistory)
     }
   }
 
   @Test("The today link on Today changes nothing")
   func openingLinkOnToday() {
     var navigation = TodayNavigation()
-    navigation.open(AppDeepLink.todayURL)
+    navigation.open(AppDeepLink.todayURL, now: .now)
     #expect(navigation == TodayNavigation())
   }
 
@@ -601,7 +618,7 @@ struct WidgetIntegrationTests {
     let otherScheme = try #require(URL(string: "https://today"))
     for url in [otherScreen, otherScheme] {
       var navigation = TodayNavigation(showsHistory: true)
-      navigation.open(url)
+      navigation.open(url, now: .now)
       #expect(navigation == TodayNavigation(showsHistory: true))
     }
   }

@@ -61,7 +61,8 @@ struct ExpenseDeletion {
   static func delete(
     _ expense: Expense,
     in context: ModelContext,
-    now: Date
+    now: Date,
+    window: TimeInterval = HistoryUndoSlot.defaultWindow
   ) throws -> ExpenseDeletion {
     let deletion = ExpenseDeletion(
       amountCents: expense.amountCents,
@@ -69,7 +70,7 @@ struct ExpenseDeletion {
       date: expense.date,
       createdAt: expense.createdAt,
       categoryID: expense.category?.persistentModelID,
-      expiresAt: now.addingTimeInterval(5)
+      expiresAt: now.addingTimeInterval(window)
     )
     context.delete(expense)
     try context.save()
@@ -126,12 +127,17 @@ enum HistoryDeletion {
 /// can be undone: a new delete replaces the pending one, which stays deleted (it was saved when
 /// deleted) and loses its undo.
 struct HistoryUndoSlot {
+  /// How long a delete can be undone.
+  static let defaultWindow: TimeInterval = 5
+
   private(set) var pending: HistoryDeletion?
+  /// `defaultWindow`, unless a test needs an undo that can't run out.
+  var window = HistoryUndoSlot.defaultWindow
 
   /// Deletes and saves `expense`, making it the only one Undo restores. On a save failure the
   /// pending deletion is kept and the caller rolls back.
   mutating func delete(_ expense: Expense, in context: ModelContext, now: Date) throws {
-    pending = .expense(try ExpenseDeletion.delete(expense, in: context, now: now))
+    pending = .expense(try ExpenseDeletion.delete(expense, in: context, now: now, window: window))
   }
 
   /// Deletes and saves `extra`, making it the only one Undo restores. On a save failure the
@@ -143,7 +149,7 @@ struct HistoryUndoSlot {
     now: Date
   ) throws {
     pending = .extraMoney(
-      try ExtraMoneyDeletion.delete(extra, from: budget, in: context, now: now)
+      try ExtraMoneyDeletion.delete(extra, from: budget, in: context, now: now, window: window)
     )
   }
 
@@ -162,7 +168,8 @@ struct HistoryUndoSlot {
         from: budget,
         in: context,
         now: now,
-        calendar: calendar
+        calendar: calendar,
+        window: window
       )
     )
   }

@@ -97,7 +97,8 @@ struct BillPaymentDeletion {
     from budget: Budget,
     in context: ModelContext,
     now: Date,
-    calendar: Calendar
+    calendar: Calendar,
+    window: TimeInterval = HistoryUndoSlot.defaultWindow
   ) throws -> BillPaymentDeletion {
     let bill = mark.bill
     let deletion = BillPaymentDeletion(
@@ -110,7 +111,7 @@ struct BillPaymentDeletion {
       date: mark.date,
       billID: bill?.persistentModelID,
       budget: budget,
-      expiresAt: now.addingTimeInterval(5),
+      expiresAt: now.addingTimeInterval(window),
       calendar: calendar
     )
     budget.removeBillPayment(mark)
