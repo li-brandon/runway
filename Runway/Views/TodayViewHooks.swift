@@ -15,6 +15,9 @@ final class TodayViewHooks {
   var deleteExpense: (@MainActor (Expense) -> Void)?
   /// What the undo banner's button does. Set while History shows the banner.
   var undoDelete: (@MainActor () -> Void)?
+  /// How long History's undo lasts instead of `HistoryUndoSlot.defaultWindow`, so a test can't
+  /// outlast it.
+  var undoWindow: TimeInterval?
 }
 
 extension EnvironmentValues {

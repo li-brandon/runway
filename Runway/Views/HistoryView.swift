@@ -154,7 +154,10 @@ struct HistoryView: View {
     }
     .navigationTitle("History")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear { hooks?.deleteExpense = { delete($0) } }
+    .onAppear {
+      hooks?.deleteExpense = { delete($0) }
+      if let window = hooks?.undoWindow { undoSlot.window = window }
+    }
     .onDisappear { hooks?.deleteExpense = nil }
     .task(id: undoSlot.pending?.expiresAt) {
       guard let deadline = undoSlot.pending?.expiresAt else { return }

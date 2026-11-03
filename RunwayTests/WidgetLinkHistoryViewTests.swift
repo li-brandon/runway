@@ -25,6 +25,8 @@ struct WidgetLinkHistoryViewTests {
     try context.save()
 
     let hooks = TodayViewHooks()
+    // An undo that can't run out on a slow runner, so only the link could end it.
+    hooks.undoWindow = 3_600
     let window = try await makeWindow()
     window.rootViewController = UIHostingController(
       rootView: ContentView(budget: budget)
@@ -53,7 +55,7 @@ struct WidgetLinkHistoryViewTests {
     let bannerAppeared = await waitUntil { hooks.undoDelete != nil }
     try #require(bannerAppeared)
 
-    // Long enough for a pop to finish, and well inside the five-second undo.
+    // Long enough for a pop to finish, and well inside the hour-long undo.
     openURL(AppDeepLink.todayURL)
     let leftHistory = await waitUntil(timeout: .seconds(1)) {
       hooks.deleteExpense == nil || hooks.undoDelete == nil
