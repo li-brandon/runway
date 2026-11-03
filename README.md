@@ -353,7 +353,8 @@ device only when you share an export yourself. Exported files aren't encrypted.
 
 - **App lock:** asks for Face ID, Touch ID, or your passcode when you launch or return to Runway,
   and hides the app in the app switcher. Home-screen widgets also hide their amounts while the
-  device is locked, and lock-screen widgets hide their amounts and days left. It's off by default.
+  device is locked, and lock-screen widgets hide their amounts and days left. Hidden amounts and
+  statuses draw the same placeholder whatever their value. It's off by default.
 - **Export:** every record as versioned JSON, and expenses as CSV, through the share sheet. JSON
   dates are seconds since 2001-01-01 UTC, which keeps them exact.
 - **Import:** replaces all data with a JSON export, after a confirmation. The whole file is checked

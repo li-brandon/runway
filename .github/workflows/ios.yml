@@ -232,6 +232,11 @@ jobs:
               for name, value in rows:
                   f.write(f"| {name} | {value} |\n")
           PY
+          # Per-test timings that tests print as "TIMING ..." lines.
+          ATTACHMENTS="$RUNNER_TEMP/attachments"
+          xcrun xcresulttool export attachments --path "$BUNDLE" --output-path "$ATTACHMENTS" \
+            > /dev/null 2>&1
+          find "$ATTACHMENTS" -type f -exec grep -h '^TIMING ' {} + 2>/dev/null | sort -u
           exit 0
 
       - name: Build Release for simulator
