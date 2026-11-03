@@ -202,10 +202,26 @@ struct WidgetRedactionRenderTests {
     var measuredSize: CGSize?
     ImageRenderer(content: themed).render { size, _ in measuredSize = size }
     let idealSize = try #require(measuredSize)
-    let framed = ImageRenderer(content: themed.frame(width: frame.width, height: frame.height))
-    framed.scale = 1
-    let framedImage = try #require(framed.cgImage)
-    return Rendering(idealSize: idealSize, framedImage: try bitmapBytes(of: framedImage))
+    let framedImage = try Self.stableBitmap(of: themed, in: frame)
+    return Rendering(idealSize: idealSize, framedImage: framedImage)
+  }
+
+  /// Renders `content` in a frame of `size` until two renders in a row give the same bytes, since
+  /// early in the process a font or symbol can still be loading and change what's drawn. After a
+  /// few tries it returns the last render, so a widget that never settles fails its comparison.
+  private static func stableBitmap(of content: some View, in size: CGSize) throws -> Data {
+    @MainActor func bitmap() throws -> Data {
+      let renderer = ImageRenderer(content: content.frame(width: size.width, height: size.height))
+      renderer.scale = 1
+      return try bitmapBytes(of: try #require(renderer.cgImage))
+    }
+    var previous = try bitmap()
+    for _ in 1..<5 {
+      let next = try bitmap()
+      if next == previous { return next }
+      previous = next
+    }
+    return previous
   }
 
   private var redactedWidget: some View {
@@ -260,16 +276,15 @@ struct WidgetRedactionRenderTests {
     ]
   }
 
-  /// Renders each widget once per process, so one-time work like the first render or loading a
-  /// font or symbol isn't charged to whichever test happens to draw it first. Privacy placeholders
-  /// draw no glyphs, so the widgets with real figures are drawn too, in every layout and family.
+  /// Renders each widget until it settles, once per process, so one-time work like the first render
+  /// or loading a font or symbol isn't charged to whichever test happens to draw it first. Privacy
+  /// placeholders draw no glyphs, so the widgets with real figures are drawn too, in every layout
+  /// and family.
   private static let warmUp: Void = {
     let tests = WidgetRedactionRenderTests()
     @MainActor func draw(_ content: some View, in size: CGSize) {
       let themed = content.environment(\.colorScheme, .light)
-      let renderer = ImageRenderer(content: themed.frame(width: size.width, height: size.height))
-      renderer.scale = 1
-      _ = renderer.cgImage
+      _ = try? WidgetRedactionRenderTests.stableBitmap(of: themed, in: size)
     }
     draw(tests.redactedWidget, in: tests.frame(of: RunwayWidgetContent.Layout.small))
     for figures in tests.lowAndHighFigures {
