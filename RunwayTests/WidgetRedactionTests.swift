@@ -252,18 +252,44 @@ struct WidgetRedactionRenderTests {
     }
   }
 
-  /// Renders a redacted widget once per process, so the first render's one-time warm-up isn't
-  /// charged to whichever test happens to run first.
+  /// What `notPrivate` draws: no allowance left, and a large amount on track.
+  private var lowAndHighFigures: [WidgetAllowance] {
+    [
+      allowance(today: 0, period: 0, status: .noAllowance),
+      allowance(today: 12_345_678, period: 186_049_248, status: .normal),
+    ]
+  }
+
+  /// Renders each widget once per process, so one-time work like the first render or loading a
+  /// font or symbol isn't charged to whichever test happens to draw it first. Privacy placeholders
+  /// draw no glyphs, so the widgets with real figures are drawn too, in every layout and family.
   private static let warmUp: Void = {
     let tests = WidgetRedactionRenderTests()
-    let size = tests.frame(of: RunwayWidgetContent.Layout.small)
-    let renderer = ImageRenderer(
-      content: tests.redactedWidget
-        .environment(\.colorScheme, .light)
-        .frame(width: size.width, height: size.height)
-    )
-    renderer.scale = 1
-    _ = renderer.cgImage
+    func draw(_ content: some View, in size: CGSize) {
+      let renderer = ImageRenderer(
+        content: content
+          .environment(\.colorScheme, .light)
+          .frame(width: size.width, height: size.height)
+      )
+      renderer.scale = 1
+      _ = renderer.cgImage
+    }
+    draw(tests.redactedWidget, in: tests.frame(of: RunwayWidgetContent.Layout.small))
+    for figures in tests.lowAndHighFigures {
+      let entry = tests.entry(figures, amountsArePrivate: false)
+      for layout in RunwayWidgetContent.Layout.allCases {
+        draw(
+          RunwayWidgetContent(entry: entry, layout: layout).redacted(reason: .privacy),
+          in: tests.frame(of: layout)
+        )
+      }
+      for family in LockScreenWidgetContent.Family.allCases {
+        draw(
+          LockScreenWidgetContent(entry: entry, family: family).redacted(reason: .privacy),
+          in: tests.frame(of: family)
+        )
+      }
+    }
   }()
 
   /// Runs `body`, reports how long it took, and fails the test if it ran over the budget.
@@ -384,10 +410,8 @@ struct WidgetRedactionRenderTests {
   @Test("With the app lock off, widgets keep their real figures on a locked device")
   func notPrivate() throws {
     try timed("notPrivate") {
-      let low = allowance(today: 0, period: 0, status: .noAllowance)
-      let high = allowance(today: 12_345_678, period: 186_049_248, status: .normal)
       for layout in RunwayWidgetContent.Layout.allCases {
-        let renderings = try [low, high].map { figures in
+        let renderings = try lowAndHighFigures.map { figures in
           try render(
             RunwayWidgetContent(entry: entry(figures, amountsArePrivate: false), layout: layout)
               .redacted(reason: .privacy),
@@ -397,7 +421,7 @@ struct WidgetRedactionRenderTests {
         #expect(renderings[0].framedImage != renderings[1].framedImage)
       }
       for family in [LockScreenWidgetContent.Family.rectangular, .inline] {
-        let renderings = try [low, high].map { figures in
+        let renderings = try lowAndHighFigures.map { figures in
           try render(
             LockScreenWidgetContent(entry: entry(figures, amountsArePrivate: false), family: family)
               .redacted(reason: .privacy),
