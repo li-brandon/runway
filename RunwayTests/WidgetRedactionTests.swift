@@ -265,7 +265,7 @@ struct WidgetRedactionRenderTests {
   /// draw no glyphs, so the widgets with real figures are drawn too, in every layout and family.
   private static let warmUp: Void = {
     let tests = WidgetRedactionRenderTests()
-    func draw(_ content: some View, in size: CGSize) {
+    @MainActor func draw(_ content: some View, in size: CGSize) {
       let themed = content.environment(\.colorScheme, .light)
       let renderer = ImageRenderer(content: themed.frame(width: size.width, height: size.height))
       renderer.scale = 1
