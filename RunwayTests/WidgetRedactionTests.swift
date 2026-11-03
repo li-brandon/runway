@@ -266,11 +266,8 @@ struct WidgetRedactionRenderTests {
   private static let warmUp: Void = {
     let tests = WidgetRedactionRenderTests()
     func draw(_ content: some View, in size: CGSize) {
-      let renderer = ImageRenderer(
-        content: content
-          .environment(\.colorScheme, .light)
-          .frame(width: size.width, height: size.height)
-      )
+      let themed = content.environment(\.colorScheme, .light)
+      let renderer = ImageRenderer(content: themed.frame(width: size.width, height: size.height))
       renderer.scale = 1
       _ = renderer.cgImage
     }
