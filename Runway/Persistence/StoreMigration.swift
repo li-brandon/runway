@@ -18,6 +18,12 @@ import os
 /// SQLite closes a store some time after its container is released, and renaming or deleting files
 /// a connection still has open breaks the next open with `SQLITE_IOERR_VNODE`. So no store file
 /// moves or is deleted until every connection to that store has closed.
+///
+/// `run()` is synchronous, and the app calls it on the main thread at launch. Waiting for
+/// connections to close is what can take long, so all of a run's waits share one deadline,
+/// `closeBudget` after it starts. With the defaults, a run blocks its thread for at most 10 seconds
+/// waiting, plus one last non-blocking check in each of its at most three waits. Counting and
+/// copying the store aren't covered.
 struct StoreMigration {
   enum Outcome: Equatable {
     /// There was no old store, as on a fresh install.
@@ -61,6 +67,8 @@ struct StoreMigration {
   var countNewStore: (URL) throws -> [String: Int] = RunwayModelContainer.storeCounts(at:)
   /// How long to wait for a store's connections to close before leaving its files where they are.
   var closeTimeout: TimeInterval = 5
+  /// The longest a whole run waits for connections to close, however many stores it waits for.
+  var closeBudget: TimeInterval = 10
 
   static func isComplete(newStoreURL: URL) -> Bool {
     FileManager.default.fileExists(atPath: markerURL(for: newStoreURL).path)
@@ -105,18 +113,20 @@ struct StoreMigration {
 
   /// On failure the old store's data is untouched, though closing it can merge its `-wal` into the
   /// store file. Nothing is left at the new location, except a store from an earlier interrupted
-  /// run if clearing it was what failed, or a copy that was still open after `closeTimeout`. The
-  /// next run clears either.
+  /// run if clearing it was what failed, or a copy that was still open after `closeTimeout` or once
+  /// `closeBudget` ran out. The next run clears either.
   ///
   /// Throws `RunwayStoreError.sharedStoreUnavailable` if a finished migration's store is gone from
   /// the new location. Starting over could replace the user's data with an older or empty store.
   @discardableResult
   func run() throws -> Outcome {
+    // A monotonic clock, so a change to the wall clock can't stretch or cut short the waits.
+    let closeDeadline = ContinuousClock.now.advanced(by: .seconds(closeBudget))
     if Self.isComplete(newStoreURL: newStoreURL) {
       // The record is missing if the last run stopped right after writing the marker.
       recordComplete()
       if let migratedStore = Self.marker(newStoreURL: newStoreURL)?.migratedStore {
-        backUpOldStoreIfUnchanged(migratedStore)
+        backUpOldStoreIfUnchanged(migratedStore, closeDeadline: closeDeadline)
       }
       return .alreadyMigrated
     }
@@ -140,7 +150,7 @@ struct StoreMigration {
       // nor a later check for connections can look like a write. A connection still open after
       // `closeTimeout` can change the store when it closes, which only leaves the old store in
       // place.
-      waitUntilClosed(oldStoreURL)
+      waitUntilClosed(oldStoreURL, closeDeadline: closeDeadline)
       migratedStore = MigratedStore(
         store: try Self.stamp(of: oldStoreURL),
         wal: try? Self.stamp(of: Self.walURL(of: oldStoreURL)),
@@ -157,16 +167,16 @@ struct StoreMigration {
       guard copiedCounts == counts else {
         throw RunwayStoreError.migrationCountMismatch(expected: counts, found: copiedCounts)
       }
-      waitUntilClosed(newStoreURL)
+      waitUntilClosed(newStoreURL, closeDeadline: closeDeadline)
       try writeMarker(Marker(migratedStore: migratedStore))
     } catch {
-      if waitUntilClosed(newStoreURL) {
+      if waitUntilClosed(newStoreURL, closeDeadline: closeDeadline) {
         try? removeNewFiles()
       }
       throw error
     }
     recordComplete()
-    backUpOldStoreIfUnchanged(migratedStore)
+    backUpOldStoreIfUnchanged(migratedStore, closeDeadline: closeDeadline)
     return .migrated
   }
 
@@ -218,17 +228,25 @@ struct StoreMigration {
     defaults.set(true, forKey: Self.completedKey)
   }
 
-  /// Whether every connection to the store closed within `closeTimeout`. Once they have, the `-wal`
-  /// is merged into the store file, and any sidecars left are empty or transient. Checking can
-  /// leave or recreate them, but doesn't change the store file once it's merged.
+  /// Whether every connection to the store closed within `closeTimeout`, and before
+  /// `closeDeadline`, the end of the run's `closeBudget`.
   @discardableResult
-  private func waitUntilClosed(_ storeURL: URL) -> Bool {
-    let deadline = Date.now.addingTimeInterval(closeTimeout)
-    while Self.hasOpenConnection(to: storeURL) {
-      guard Date.now < deadline else {
-        RunwayModelContainer.logger.notice("A store was still open after waiting for it to close")
-        return false
-      }
+  private func waitUntilClosed(_ storeURL: URL, closeDeadline: ContinuousClock.Instant) -> Bool {
+    let deadline = min(ContinuousClock.now.advanced(by: .seconds(closeTimeout)), closeDeadline)
+    guard Self.waitUntilClosed(storeURL, deadline: deadline) else {
+      RunwayModelContainer.logger.notice("A store was still open after waiting for it to close")
+      return false
+    }
+    return true
+  }
+
+  /// Whether every connection to the store closed by `deadline`. Once they have, the `-wal` is
+  /// merged into the store file, and any sidecars left are empty or transient. Checking can leave
+  /// or recreate them, but doesn't change the store file once it's merged. Checks at least once,
+  /// even once `deadline` has passed.
+  static func waitUntilClosed(_ storeURL: URL, deadline: ContinuousClock.Instant) -> Bool {
+    while hasOpenConnection(to: storeURL) {
+      guard ContinuousClock.now < deadline else { return false }
       Thread.sleep(forTimeInterval: 0.02)
     }
     return true
@@ -300,12 +318,15 @@ struct StoreMigration {
   ///
   /// A changed store isn't even opened to check for connections, since closing it could alter it.
   /// It's compared again afterwards, in case a connection wrote to it as it closed.
-  private func backUpOldStoreIfUnchanged(_ migratedStore: MigratedStore) {
+  private func backUpOldStoreIfUnchanged(
+    _ migratedStore: MigratedStore,
+    closeDeadline: ContinuousClock.Instant
+  ) {
     let fileManager = FileManager.default
     guard fileManager.fileExists(atPath: oldStoreURL.path) else { return }
     guard
       isUnchanged(migratedStore),
-      waitUntilClosed(oldStoreURL),
+      waitUntilClosed(oldStoreURL, closeDeadline: closeDeadline),
       isUnchanged(migratedStore)
     else {
       RunwayModelContainer.logger.notice(
