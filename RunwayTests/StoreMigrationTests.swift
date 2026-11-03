@@ -19,6 +19,9 @@ struct StoreMigrationTests {
   }
 
   private let date = Date(timeIntervalSinceReferenceDate: 800_000_000)
+  /// Slow CI machines can take longer than the app's defaults to close a store.
+  private let closeTimeout: TimeInterval = 30
+  private let closeBudget: TimeInterval = 60
 
   private func withDirectory(_ body: (URL) throws -> Void) throws {
     let directory = FileManager.default.temporaryDirectory
@@ -49,7 +52,18 @@ struct StoreMigrationTests {
       oldStoreURL: stores.old,
       newStoreURL: stores.new,
       defaults: stores.defaults,
-      now: date
+      now: date,
+      closeTimeout: closeTimeout,
+      closeBudget: closeBudget
+    )
+  }
+
+  /// Waits until every connection to the store has closed and its `-wal` is merged, as the
+  /// migration does before it stamps the store.
+  private func waitUntilClosed(_ url: URL) -> Bool {
+    StoreMigration.waitUntilClosed(
+      url,
+      deadline: ContinuousClock.now.advanced(by: .seconds(closeBudget))
     )
   }
 
@@ -183,7 +197,12 @@ struct StoreMigrationTests {
   func markerRecordsWhatWasMigrated() throws {
     try withStores { stores in
       try seedStore(at: stores.old)
-      let counts = try RunwayModelContainer.readOnlyStoreCounts(at: stores.old)
+      let counts = try autoreleasepool {
+        try RunwayModelContainer.readOnlyStoreCounts(at: stores.old)
+      }
+      // Closing the seed and count containers can still merge the `-wal` and change the store.
+      let closed = waitUntilClosed(stores.old)
+      try #require(closed)
       let attributes = try FileManager.default.attributesOfItem(atPath: stores.old.path)
 
       try migration(stores).run()
@@ -281,12 +300,17 @@ struct StoreMigrationTests {
         now: date,
         countNewStore: { url in
           // A copy that opens fine but lost a row.
-          let context = ModelContext(try RunwayModelContainer.make(url: url))
-          let expense = try #require(try context.fetch(FetchDescriptor<Expense>()).first)
-          context.delete(expense)
-          try context.save()
+          try autoreleasepool {
+            let context = ModelContext(try RunwayModelContainer.make(url: url))
+            let expenses = try context.fetch(FetchDescriptor<Expense>())
+            let expense = try #require(expenses.first)
+            context.delete(expense)
+            try context.save()
+          }
           return try RunwayModelContainer.storeCounts(at: url)
-        }
+        },
+        closeTimeout: closeTimeout,
+        closeBudget: closeBudget
       )
 
       #expect(throws: RunwayStoreError.self) { try lossy.run() }
@@ -489,6 +513,36 @@ struct StoreMigrationTests {
       #expect(retried == .alreadyMigrated)
       #expect(!exists(stores.old))
       try expectSeededData(at: backupURL(of: stores))
+    }
+  }
+
+  @Test("A run's waits for an open store all end with its close budget")
+  func closeBudgetBoundsWaits() throws {
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      var connection: OpaquePointer?
+      defer { sqlite3_close(connection) }
+      let opened = sqlite3_open_v2(stores.old.path, &connection, SQLITE_OPEN_READWRITE, nil)
+      #expect(opened == SQLITE_OK)
+      // A read leaves the connection holding its lock on the store until it closes.
+      let read = sqlite3_exec(connection, "SELECT count(*) FROM sqlite_master;", nil, nil, nil)
+      #expect(read == SQLITE_OK)
+
+      var budgeted = migration(stores)
+      budgeted.closeTimeout = 2
+      budgeted.closeBudget = 0.5
+      var outcome: StoreMigration.Outcome?
+      let elapsed = try ContinuousClock().measure {
+        outcome = try budgeted.run()
+      }
+
+      // Each of the two waits for the old store would take `closeTimeout` without the budget. The
+      // tolerance covers the last checks and the store work.
+      let withinBudget = elapsed < .seconds(budgeted.closeBudget + 1.5)
+      #expect(withinBudget)
+      #expect(outcome == .migrated)
+      #expect(exists(stores.old))
+      #expect(!exists(backupURL(of: stores)))
     }
   }
 
