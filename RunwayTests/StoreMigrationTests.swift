@@ -19,6 +19,9 @@ struct StoreMigrationTests {
   }
 
   private let date = Date(timeIntervalSinceReferenceDate: 800_000_000)
+  /// Slow CI machines can take longer than the app's defaults to close a store.
+  private let closeTimeout: TimeInterval = 30
+  private let closeBudget: TimeInterval = 60
 
   private func withDirectory(_ body: (URL) throws -> Void) throws {
     let directory = FileManager.default.temporaryDirectory
@@ -49,8 +52,16 @@ struct StoreMigrationTests {
       oldStoreURL: stores.old,
       newStoreURL: stores.new,
       defaults: stores.defaults,
-      now: date
+      now: date,
+      closeTimeout: closeTimeout,
+      closeBudget: closeBudget
     )
+  }
+
+  /// Waits until every connection to the store has closed and its `-wal` is merged, as the
+  /// migration does before it stamps the store.
+  private func waitUntilClosed(_ url: URL) -> Bool {
+    StoreMigration.waitUntilClosed(url, deadline: Date.now.addingTimeInterval(closeBudget))
   }
 
   private func oldURL(in directory: URL) throws -> URL {
@@ -183,7 +194,12 @@ struct StoreMigrationTests {
   func markerRecordsWhatWasMigrated() throws {
     try withStores { stores in
       try seedStore(at: stores.old)
-      let counts = try RunwayModelContainer.readOnlyStoreCounts(at: stores.old)
+      let counts = try autoreleasepool {
+        try RunwayModelContainer.readOnlyStoreCounts(at: stores.old)
+      }
+      // Closing the seed and count containers can still merge the `-wal` and change the store.
+      let closed = waitUntilClosed(stores.old)
+      try #require(closed)
       let attributes = try FileManager.default.attributesOfItem(atPath: stores.old.path)
 
       try migration(stores).run()
@@ -281,12 +297,17 @@ struct StoreMigrationTests {
         now: date,
         countNewStore: { url in
           // A copy that opens fine but lost a row.
-          let context = ModelContext(try RunwayModelContainer.make(url: url))
-          let expense = try #require(try context.fetch(FetchDescriptor<Expense>()).first)
-          context.delete(expense)
-          try context.save()
+          try autoreleasepool {
+            let context = ModelContext(try RunwayModelContainer.make(url: url))
+            let expenses = try context.fetch(FetchDescriptor<Expense>())
+            let expense = try #require(expenses.first)
+            context.delete(expense)
+            try context.save()
+          }
           return try RunwayModelContainer.storeCounts(at: url)
-        }
+        },
+        closeTimeout: closeTimeout,
+        closeBudget: closeBudget
       )
 
       #expect(throws: RunwayStoreError.self) { try lossy.run() }
