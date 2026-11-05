@@ -12,9 +12,12 @@ struct HistoryView: View {
   let screenshotScenario: ScreenshotScenario?
   /// Whether one of this screen's editors is open, so a widget's link can leave it alone.
   @Binding var presentsSheet: Bool
+  /// When the pending undo runs out, so a widget's link can stay here until then.
+  @Binding var undoExpiresAt: Date?
 
   @Environment(\.modelContext) private var modelContext
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.todayViewHooks) private var hooks
 
   @Query(
     sort: [
@@ -43,11 +46,13 @@ struct HistoryView: View {
     budget: Budget,
     now: Date,
     presentsSheet: Binding<Bool>,
+    undoExpiresAt: Binding<Date?>,
     screenshotScenario: ScreenshotScenario? = nil
   ) {
     self.budget = budget
     self.now = now
     _presentsSheet = presentsSheet
+    _undoExpiresAt = undoExpiresAt
     self.screenshotScenario = screenshotScenario
   }
 
@@ -160,6 +165,11 @@ struct HistoryView: View {
     }
     .navigationTitle("History")
     .navigationBarTitleDisplayMode(.inline)
+    .onAppear {
+      hooks?.deleteExpense = { delete($0) }
+      if let window = hooks?.undoWindow { undoSlot.window = window }
+    }
+    .onDisappear { hooks?.deleteExpense = nil }
     .task(id: undoSlot.pending?.expiresAt) {
       guard let deadline = undoSlot.pending?.expiresAt else { return }
       let delay = max(0, deadline.timeIntervalSinceNow)
@@ -173,6 +183,9 @@ struct HistoryView: View {
       initial: true
     ) { _, isPresented in
       presentsSheet = isPresented
+    }
+    .onChange(of: undoSlot.pending?.expiresAt, initial: true) { _, deadline in
+      undoExpiresAt = deadline
     }
     .sheet(item: $editing) { expense in
       ExpenseEditView(
@@ -504,6 +517,8 @@ struct HistoryView: View {
     .padding()
     .frame(maxWidth: .infinity)
     .background(.regularMaterial)
+    .onAppear { hooks?.undoDelete = { restore() } }
+    .onDisappear { hooks?.undoDelete = nil }
   }
 
   // MARK: - Text

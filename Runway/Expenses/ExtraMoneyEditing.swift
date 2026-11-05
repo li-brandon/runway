@@ -68,14 +68,15 @@ struct ExtraMoneyDeletion {
     _ extra: ExtraMoney,
     from budget: Budget,
     in context: ModelContext,
-    now: Date
+    now: Date,
+    window: TimeInterval = HistoryUndoSlot.defaultWindow
   ) throws -> ExtraMoneyDeletion {
     let deletion = ExtraMoneyDeletion(
       amountCents: extra.amountCents,
       note: extra.note,
       date: extra.date,
       budget: budget,
-      expiresAt: now.addingTimeInterval(5)
+      expiresAt: now.addingTimeInterval(window)
     )
     budget.removeExtraMoney(extra)
     try context.save()

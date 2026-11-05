@@ -262,9 +262,11 @@ tests and CI screenshots reach through the app module. Widgets open the store re
 after every save, when the app launches or changes between foreground and background, when the
 clock or time zone changes while the app is running, and at midnight. Tapping a widget opens
 `runway://today`, which brings the app forward and goes back from History to Today. If a sheet is
-open, the app stays on the same screen, so the sheet and its draft stay as they were. The same
-widget also offers the lock-screen families: a gauge of the period's days, today's amount with days
-left, and one line of text.
+open, the app stays on the same screen, so the sheet and its draft stay as they were. While
+History's **Undo** banner is showing, the app also stays on History, so the delete can still be
+undone; the link doesn't apply later, once the banner is gone. The same widget also offers the
+lock-screen families: a gauge of the period's days, today's amount with days left, and one line of
+text.
 
 ## Device checks
 
