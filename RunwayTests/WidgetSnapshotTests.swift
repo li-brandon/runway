@@ -59,6 +59,29 @@ struct WidgetSnapshotTests {
     }
   }
 
+  /// Renders `content` until two renders in a row give the same bytes, since early in the process
+  /// a font or symbol can still be loading and change what's drawn. After a few tries it returns
+  /// the last render as PNG data, so a widget that never settles will use its final attempt.
+  private func stableSnapshot(of content: some View, scale: CGFloat) throws -> Data {
+    @MainActor func renderOnce() throws -> (image: CGImage, bytes: Data) {
+      let renderer = ImageRenderer(content: content)
+      renderer.scale = scale
+      let image = try #require(renderer.cgImage)
+      let bytes = try bitmapBytes(of: image)
+      return (image, bytes)
+    }
+    
+    var previous = try renderOnce()
+    for _ in 1..<5 {
+      let next = try renderOnce()
+      if next.bytes == previous.bytes {
+        return try #require(UIImage(cgImage: next.image).pngData())
+      }
+      previous = next
+    }
+    return try #require(UIImage(cgImage: previous.image).pngData())
+  }
+
   private func write(
     _ content: some View,
     layout: RunwayWidgetContent.Layout,
@@ -73,9 +96,7 @@ struct WidgetSnapshotTests {
       .frame(width: dimensions.width, height: dimensions.height)
       .background(scheme == .dark ? Color.black : Color.white)
       .environment(\.colorScheme, scheme)
-    let renderer = ImageRenderer(content: framed)
-    renderer.scale = 3
-    let data = try #require(renderer.uiImage?.pngData())
+    let data = try stableSnapshot(of: framed, scale: 3)
     try data.write(to: directory.appending(path: "480-widget-\(layout.rawValue)-\(name).png"))
   }
 
@@ -150,9 +171,7 @@ struct WidgetSnapshotTests {
       .frame(width: dimensions.width, height: dimensions.height)
       .background(scheme == .dark ? Color.black : Color.white)
       .environment(\.colorScheme, scheme)
-    let renderer = ImageRenderer(content: framed)
-    renderer.scale = 3
-    let data = try #require(renderer.uiImage?.pngData())
+    let data = try stableSnapshot(of: framed, scale: 3)
     try data.write(to: directory.appending(path: "481-lockscreen-\(family.rawValue)-\(name).png"))
   }
 
