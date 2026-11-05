@@ -70,7 +70,7 @@ struct WidgetSnapshotTests {
       let bytes = try bitmapBytes(of: image)
       return (image, bytes)
     }
-    
+
     var previous = try renderOnce()
     for _ in 1..<5 {
       let next = try renderOnce()
