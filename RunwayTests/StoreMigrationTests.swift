@@ -292,6 +292,8 @@ struct StoreMigrationTests {
   func mismatchedCountsKeepOldStore() throws {
     try withStores { stores in
       try seedStore(at: stores.old)
+      let closed = waitUntilClosed(stores.old)
+      try #require(closed)
       let oldBytes = try Data(contentsOf: stores.old)
       let lossy = StoreMigration(
         oldStoreURL: stores.old,
