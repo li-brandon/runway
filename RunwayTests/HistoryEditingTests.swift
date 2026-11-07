@@ -513,6 +513,111 @@ struct HistoryEditingTests {
     #expect(try page(periodOffset: 5, now: now).beforeBudget.map(\.note) == ["Early"])
   }
 
+  @Test("The newest page's link counts every item the Before budget section lists")
+  func beforeBudgetLinkCountsMixedItems() throws {
+    let date = calendar.date(2026, 5, 30, 9)
+    try service.createExpense(amountCents: 1_000, note: "Early", date: date, now: date)
+    try service.createExpense(amountCents: -500, note: "Refund", date: date, now: date)
+    budget.addExtraMoney(cents: 2_500, note: "Gift", now: date, calendar: calendar)
+    let bill = FixedBill(name: "Rent", amountCents: 5_000, dueDay: 28)
+    context.insert(bill)
+    budget.fixedBills.append(bill)
+    budget.setStatus(.skipped, of: bill, now: date, calendar: calendar)
+    // In a period, so neither the link nor the section counts it.
+    let inPeriod = calendar.date(2026, 6, 2, 9)
+    try service.createExpense(amountCents: 700, note: "Lunch", date: inPeriod, now: inPeriod)
+    try context.save()
+
+    let now = calendar.date(2026, 6, 10, 12)
+    let newest = try page(periodOffset: 0, now: now)
+    let section = try page(periodOffset: newest.oldestPeriodOffset, now: now).beforeBudget
+    #expect(newest.beforeBudgetLinkCount == 4)
+    #expect(newest.beforeBudgetLinkCount == section.count)
+    #expect(newest.beforeBudgetLinkTitle == "4 items before budget")
+  }
+
+  @Test("The link's title uses the singular for one item")
+  func beforeBudgetLinkSingular() throws {
+    let date = calendar.date(2026, 5, 30, 9)
+    try service.createExpense(amountCents: 1_000, note: "Early", date: date, now: date)
+    try context.save()
+    let shown = try page(now: calendar.date(2026, 6, 10, 12))
+    #expect(shown.beforeBudgetLinkTitle == "1 item before budget")
+  }
+
+  @Test("No link without items before the budget, even with spending in a period")
+  func beforeBudgetLinkHiddenAtZero() throws {
+    let date = calendar.date(2026, 6, 2, 9)
+    try service.createExpense(amountCents: 1_000, note: "Lunch", date: date, now: date)
+    try context.save()
+    let shown = try page(now: calendar.date(2026, 6, 10, 12))
+    #expect(shown.beforeBudgetLinkCount == 0)
+    #expect(shown.beforeBudgetLinkTitle == nil)
+  }
+
+  @Test("Only the newest page has the link, and it targets the page with the section")
+  func beforeBudgetLinkTarget() throws {
+    let date = calendar.date(2026, 5, 30, 9)
+    try service.createExpense(amountCents: 1_000, note: "Early", date: date, now: date)
+    try context.save()
+    // Three weekly periods: newest, middle, oldest.
+    let now = calendar.date(2026, 6, 16, 12)
+    let newest = try page(periodOffset: 0, now: now)
+    #expect(newest.oldestPeriodOffset == 2)
+    #expect(newest.beforeBudget.isEmpty)
+    #expect(newest.beforeBudgetLinkTitle != nil)
+    let middle = try page(periodOffset: 1, now: now)
+    #expect(middle.beforeBudget.isEmpty)
+    #expect(middle.beforeBudgetLinkTitle == nil)
+    let target = try page(periodOffset: newest.oldestPeriodOffset, now: now)
+    #expect(target.beforeBudget.map(\.note) == ["Early"])
+    #expect(target.beforeBudgetLinkTitle == nil)
+  }
+
+  @Test("With a single period, its page has both the link and the section")
+  func beforeBudgetLinkOnSinglePeriod() throws {
+    let date = calendar.date(2026, 5, 30, 9)
+    try service.createExpense(amountCents: 1_000, note: "Early", date: date, now: date)
+    try context.save()
+    let shown = try page(now: calendar.date(2026, 6, 3, 12))
+    #expect(shown.oldestPeriodOffset == 0)
+    #expect(shown.beforeBudget.count == 1)
+    #expect(shown.beforeBudgetLinkCount == 1)
+  }
+
+  @Test("The link's screenshot seeds expenses, money, and bill marks, changing no figures")
+  func beforeBudgetLinkScreenshotSeed() throws {
+    let now = calendar.date(2026, 6, 10, 12)
+    let seedContainer = try RunwayModelContainer.make(inMemory: true)
+    let seeded = ModelContext(seedContainer)
+    let budget = try #require(
+      try ScreenshotScenario.historyBeforeBudgetRow.seed(
+        into: seeded,
+        now: now,
+        calendar: calendar
+      )
+    )
+    let expenses = try seeded.fetch(FetchDescriptor<Expense>())
+    let newest = HistoryView.makePage(
+      budget: budget,
+      expenses: expenses,
+      periodOffset: 0,
+      now: now,
+      calendar: calendar
+    )
+    let oldest = HistoryView.makePage(
+      budget: budget,
+      expenses: expenses,
+      periodOffset: newest.oldestPeriodOffset,
+      now: now,
+      calendar: calendar
+    )
+    #expect(newest.beforeBudgetLinkTitle == "7 items before budget")
+    #expect(oldest.beforeBudget.count == 7)
+    #expect(oldest.periods[1].spentCents == 78_610)
+    #expect(oldest.periods.map(\.extraCents) == [0, 0])
+  }
+
   @Test("The before-budget screenshot seeds earlier expenses and money, changing no figures")
   func beforeBudgetScreenshotSeed() throws {
     let now = calendar.date(2026, 6, 10, 12)
