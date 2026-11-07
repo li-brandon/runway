@@ -239,6 +239,38 @@ jobs:
           find "$ATTACHMENTS" -type f -exec grep -h '^TIMING ' {} + 2>/dev/null | sort -u
           exit 0
 
+      # Extract test failure details for diagnostics
+      - name: Test issues
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 2
+        shell: bash {0}
+        run: |
+          BUNDLE="$RESULTS_DIR/test.xcresult"
+          ISSUES_JSON="$RUNNER_TEMP/test-issues.json"
+          
+          if [ ! -e "$BUNDLE" ]; then
+            echo "No xcresult bundle found"
+            exit 0
+          fi
+          
+          # Extract test issues in JSON format
+          if xcrun xcresulttool get --path "$BUNDLE" --format json > "$ISSUES_JSON" 2>/dev/null; then
+            # Extract just the issues section if it exists
+            if jq -e '.issues' "$ISSUES_JSON" > /dev/null 2>&1; then
+              echo "Test issues found:"
+              jq -r '.issues.testFailureSummaries[]? | 
+                "Test: \(.testCaseName // "unknown")\n" +
+                "Message: \(.message // "no message")\n" +
+                "---"' "$ISSUES_JSON" || true
+            else
+              echo "No test failures recorded in xcresult"
+            fi
+          else
+            echo "Could not extract xcresult data"
+          fi
+          exit 0
+
       - name: Build Release for simulator
         run: |
           xcodebuild build \

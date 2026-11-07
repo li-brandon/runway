@@ -23,13 +23,6 @@ struct StoreMigrationTests {
   private let closeTimeout: TimeInterval = 30
   private let closeBudget: TimeInterval = 60
 
-  init() {
-    // Force cleanup of any lingering autorelease pools from previous test suites,
-    // particularly WidgetSnapshotTests which creates many ImageRenderer instances.
-    // This helps prevent resource exhaustion that can prevent SQLite connections from closing.
-    autoreleasepool {}
-  }
-
   private func withDirectory(_ body: (URL) throws -> Void) throws {
     let directory = FileManager.default.temporaryDirectory
       .appending(path: "RunwayTests-\(UUID().uuidString)")
@@ -75,9 +68,30 @@ struct StoreMigrationTests {
     )
     if !result {
       let elapsed = started.duration(to: .now).components.seconds
-      print("⚠️ waitUntilClosed timed out after \(elapsed)s for \(url.lastPathComponent)")
-      // Force autoreleasepool drain in case contexts are pending
-      autoreleasepool {}
+      // Diagnostic: check if store file exists and get WAL status
+      let fm = FileManager.default
+      let walPath = url.path + "-wal"
+      let shmPath = url.path + "-shm"
+      let storeExists = fm.fileExists(atPath: url.path)
+      let walExists = fm.fileExists(atPath: walPath)
+      let shmExists = fm.fileExists(atPath: shmPath)
+      let walSize = (try? fm.attributesOfItem(atPath: walPath)[.size] as? UInt64) ?? 0
+      
+      // Check if we can open the store read-only
+      var connection: OpaquePointer?
+      let openResult = sqlite3_open_v2(url.path, &connection, SQLITE_OPEN_READONLY, nil)
+      let canOpen = openResult == SQLITE_OK
+      sqlite3_close(connection)
+      
+      Issue.record(
+        """
+        waitUntilClosed timed out after \(elapsed)s. \
+        Store: \(storeExists ? "exists" : "missing"), \
+        WAL: \(walExists ? "\(walSize) bytes" : "none"), \
+        SHM: \(shmExists ? "exists" : "none"), \
+        SQLite open: \(canOpen ? "OK" : "failed(\(openResult))")
+        """
+      )
     }
     return result
   }
