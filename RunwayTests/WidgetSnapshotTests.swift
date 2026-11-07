@@ -16,13 +16,6 @@ var widgetScreenshotsDirectory: URL? {
 @MainActor
 @Suite(.enabled(if: widgetScreenshotsDirectory != nil, "Renders screenshots for CI only"))
 struct WidgetSnapshotTests {
-
-  /// Force cleanup after all widget rendering to release graphics resources.
-  deinit {
-    // Drain any pending autorelease pools from ImageRenderer instances
-    autoreleasepool {}
-  }
-
   private static let states: [(name: String, content: RunwayWidgetEntry.Content)] = [
     ("normal", allowance(today: 4_250, period: 48_000, days: 9, status: .normal)),
     ("near", allowance(today: 950, period: 41_000, days: 9, status: .nearLimit)),
