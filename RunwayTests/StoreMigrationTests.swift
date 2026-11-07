@@ -23,6 +23,13 @@ struct StoreMigrationTests {
   private let closeTimeout: TimeInterval = 30
   private let closeBudget: TimeInterval = 60
 
+  init() {
+    // Force cleanup of any lingering autorelease pools from previous test suites,
+    // particularly WidgetSnapshotTests which creates many ImageRenderer instances.
+    // This helps prevent resource exhaustion that can prevent SQLite connections from closing.
+    autoreleasepool {}
+  }
+
   private func withDirectory(_ body: (URL) throws -> Void) throws {
     let directory = FileManager.default.temporaryDirectory
       .appending(path: "RunwayTests-\(UUID().uuidString)")
@@ -61,10 +68,18 @@ struct StoreMigrationTests {
   /// Waits until every connection to the store has closed and its `-wal` is merged, as the
   /// migration does before it stamps the store.
   private func waitUntilClosed(_ url: URL) -> Bool {
-    StoreMigration.waitUntilClosed(
+    let started = ContinuousClock.now
+    let result = StoreMigration.waitUntilClosed(
       url,
-      deadline: ContinuousClock.now.advanced(by: .seconds(closeBudget))
+      deadline: started.advanced(by: .seconds(closeBudget))
     )
+    if !result {
+      let elapsed = started.duration(to: .now).components.seconds
+      print("⚠️ waitUntilClosed timed out after \(elapsed)s for \(url.lastPathComponent)")
+      // Force autoreleasepool drain in case contexts are pending
+      autoreleasepool {}
+    }
+    return result
   }
 
   private func oldURL(in directory: URL) throws -> URL {
