@@ -61,10 +61,39 @@ struct StoreMigrationTests {
   /// Waits until every connection to the store has closed and its `-wal` is merged, as the
   /// migration does before it stamps the store.
   private func waitUntilClosed(_ url: URL) -> Bool {
-    StoreMigration.waitUntilClosed(
+    let started = ContinuousClock.now
+    let result = StoreMigration.waitUntilClosed(
       url,
-      deadline: ContinuousClock.now.advanced(by: .seconds(closeBudget))
+      deadline: started.advanced(by: .seconds(closeBudget))
     )
+    if !result {
+      let elapsed = started.duration(to: .now).components.seconds
+      // Diagnostic: check if store file exists and get WAL status
+      let fm = FileManager.default
+      let walPath = url.path + "-wal"
+      let shmPath = url.path + "-shm"
+      let storeExists = fm.fileExists(atPath: url.path)
+      let walExists = fm.fileExists(atPath: walPath)
+      let shmExists = fm.fileExists(atPath: shmPath)
+      let walSize = (try? fm.attributesOfItem(atPath: walPath)[.size] as? UInt64) ?? 0
+
+      // Check if we can open the store read-only
+      var connection: OpaquePointer?
+      let openResult = sqlite3_open_v2(url.path, &connection, SQLITE_OPEN_READONLY, nil)
+      let canOpen = openResult == SQLITE_OK
+      sqlite3_close(connection)
+
+      Issue.record(
+        """
+        waitUntilClosed timed out after \(elapsed)s. \
+        Store: \(storeExists ? "exists" : "missing"), \
+        WAL: \(walExists ? "\(walSize) bytes" : "none"), \
+        SHM: \(shmExists ? "exists" : "none"), \
+        SQLite open: \(canOpen ? "OK" : "failed(\(openResult))")
+        """
+      )
+    }
+    return result
   }
 
   private func oldURL(in directory: URL) throws -> URL {
