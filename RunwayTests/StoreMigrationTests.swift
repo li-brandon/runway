@@ -76,13 +76,13 @@ struct StoreMigrationTests {
       let walExists = fm.fileExists(atPath: walPath)
       let shmExists = fm.fileExists(atPath: shmPath)
       let walSize = (try? fm.attributesOfItem(atPath: walPath)[.size] as? UInt64) ?? 0
-      
+
       // Check if we can open the store read-only
       var connection: OpaquePointer?
       let openResult = sqlite3_open_v2(url.path, &connection, SQLITE_OPEN_READONLY, nil)
       let canOpen = openResult == SQLITE_OK
       sqlite3_close(connection)
-      
+
       Issue.record(
         """
         waitUntilClosed timed out after \(elapsed)s. \
