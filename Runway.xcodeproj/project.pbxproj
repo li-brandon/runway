@@ -65,6 +65,7 @@
 				Engine/TodayStatus.swift,
 				Models/RunwaySchemaV1.swift,
 				Models/RunwaySchemaV1Original.swift,
+				Models/RunwaySchemaV2.swift,
 				Money/Money.swift,
 				Persistence/RunwayMigrationPlan.swift,
 				Persistence/RunwayModelContainer.swift,

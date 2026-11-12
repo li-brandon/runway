@@ -115,7 +115,7 @@ struct AllowanceEngine: Sendable {
 
     var spentBeforeTodayCents = 0
     var spentTodayCents = 0
-    for expense in expenses where period.contains(expense.date) {
+    for expense in expenses where !expense.isCardPayment && period.contains(expense.date) {
       if expense.date < todayStart {
         spentBeforeTodayCents += expense.amountCents
       } else if expense.date < todayEnd {
@@ -210,7 +210,7 @@ struct AllowanceEngine: Sendable {
     carryInCents: Int
   ) -> Int {
     let spentCents = expenses.reduce(0) { total, expense in
-      period.contains(expense.date) ? total + expense.amountCents : total
+      !expense.isCardPayment && period.contains(expense.date) ? total + expense.amountCents : total
     }
     let extra = extraCents(in: period, budget: budget, before: period.end)
     return spendableCents(of: period, budget: budget) + carryInCents + extra - spentCents
@@ -429,6 +429,8 @@ struct BudgetSnapshot: Equatable, Sendable {
 struct ExpenseSnapshot: Equatable, Sendable {
   var amountCents: Int
   var date: Date
+  /// Credit card payments never count as spending.
+  var isCardPayment = false
 }
 
 /// A change to the carryover setting. It applies from the first period boundary at or after

@@ -274,7 +274,12 @@ struct ContentView: View {
     let summary = SpendingSummaryEngine(calendar: .current).summary(
       budget: BudgetSnapshot(budget),
       expenses: expenses.map {
-        HistoryExpense(amountCents: $0.amountCents, date: $0.date, categoryID: 0)
+        HistoryExpense(
+          amountCents: $0.amountCents,
+          date: $0.date,
+          categoryID: 0,
+          isCardPayment: $0.isCardPayment
+        )
       },
       view: spendingView,
       mode: spendingMode,
@@ -455,7 +460,9 @@ struct ContentView: View {
         Text(expense.note)
       }
       HStack {
-        if expense.amountCents < 0 {
+        if expense.isCardPayment {
+          Label("Card payment", systemImage: "creditcard")
+        } else if expense.amountCents < 0 {
           Label("Refund", systemImage: "arrow.uturn.backward")
         }
         AmountText(cents: expense.amountCents)

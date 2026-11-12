@@ -40,6 +40,9 @@ struct BudgetSetupView: View {
           NavigationLink("Categories") {
             CategoriesView()
           }
+          NavigationLink("Credit Cards") {
+            CreditCardsView()
+          }
           NavigationLink("Privacy & Data") {
             PrivacyDataView()
           }
@@ -302,7 +305,7 @@ struct BudgetSetupView: View {
 /// A labeled dollar amount text field with an inline validation message. The label wraps rather
 /// than truncates, and sits above the field at accessibility text sizes. A valid amount is
 /// reformatted as currency when the field loses focus.
-private struct AmountField: View {
+struct AmountField: View {
   let title: LocalizedStringKey
   @Binding var text: String
   var issue: BudgetDraft.Issue?
@@ -390,7 +393,7 @@ private struct BillRow: View {
   }
 }
 
-private struct IssueText: View {
+struct IssueText: View {
   let issue: BudgetDraft.Issue
 
   var body: some View {

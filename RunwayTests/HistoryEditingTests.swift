@@ -28,7 +28,7 @@ struct HistoryEditingTests {
 
   var service: CategoryService { CategoryService(context: context) }
 
-  func category(_ name: String) throws -> RunwaySchemaV1.Category {
+  func category(_ name: String) throws -> RunwaySchemaV2.Category {
     try #require(try service.categories().first { $0.name == name })
   }
 

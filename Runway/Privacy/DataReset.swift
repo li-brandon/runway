@@ -23,7 +23,7 @@ enum DataReset {
   /// list so a new model can't be missed. Deletes one by one rather than in a batch, so the
   /// deletes stay pending in the context until a save, and discarding the context undoes them.
   static func deleteAll(in context: ModelContext) throws {
-    for model in RunwaySchemaV1.models {
+    for model in RunwaySchemaV2.models {
       try deleteAll(of: model, in: context)
     }
   }

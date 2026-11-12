@@ -1,8 +1,8 @@
 import Foundation
 import SwiftData
 
-/// Current schema (1.1.0). New attributes have defaults and new relationships start empty.
-/// The original 1.0.0 shape is frozen in `RunwaySchemaV1Original` for lightweight migration.
+/// Frozen 1.1.0 schema, retained so existing stores can migrate to `RunwaySchemaV2`. It added
+/// attributes with defaults and empty relationships to the 1.0.0 `RunwaySchemaV1Original`.
 enum RunwaySchemaV1: VersionedSchema {
   static var versionIdentifier: Schema.Version {
     Schema.Version(1, 1, 0)
@@ -15,16 +15,6 @@ enum RunwaySchemaV1: VersionedSchema {
     ]
   }
 }
-
-typealias Budget = RunwaySchemaV1.Budget
-typealias FixedBill = RunwaySchemaV1.FixedBill
-typealias Expense = RunwaySchemaV1.Expense
-typealias Category = RunwaySchemaV1.Category
-typealias CarryoverChange = RunwaySchemaV1.CarryoverChange
-typealias AmountChange = RunwaySchemaV1.AmountChange
-typealias ScheduleChange = RunwaySchemaV1.ScheduleChange
-typealias ExtraMoney = RunwaySchemaV1.ExtraMoney
-typealias BillPayment = RunwaySchemaV1.BillPayment
 
 /// How long one budgeting period lasts.
 enum PeriodLength: String, Codable, CaseIterable, Sendable {

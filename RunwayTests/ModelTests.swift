@@ -94,7 +94,7 @@ struct ModelTests {
   @Test("Expenses link to an optional category")
   func expenseCategory() throws {
     let context = ModelContext(container)
-    let groceries = RunwaySchemaV1.Category(
+    let groceries = RunwaySchemaV2.Category(
       name: "Groceries",
       symbol: "cart",
       colorHex: "#34C759",
@@ -120,7 +120,7 @@ struct ModelTests {
   @Test("Deleting a category nullifies its expenses instead of deleting them")
   func categoryDeleteNullifies() throws {
     let context = ModelContext(container)
-    let dining = RunwaySchemaV1.Category(
+    let dining = RunwaySchemaV2.Category(
       name: "Dining",
       symbol: "fork.knife",
       colorHex: "#FF9500"
@@ -138,7 +138,7 @@ struct ModelTests {
     context.delete(dining)
     try context.save()
 
-    #expect(try context.fetchCount(FetchDescriptor<RunwaySchemaV1.Category>()) == 0)
+    #expect(try context.fetchCount(FetchDescriptor<RunwaySchemaV2.Category>()) == 0)
     let expenses = try context.fetch(FetchDescriptor<Expense>())
     #expect(expenses.count == 2)
     #expect(expenses.allSatisfy { $0.category == nil })
