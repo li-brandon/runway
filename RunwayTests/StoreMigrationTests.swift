@@ -246,6 +246,39 @@ struct StoreMigrationTests {
     }
   }
 
+  @Test("Waiting on the main thread, as at launch, lets a container released there close the store")
+  @MainActor
+  func waitOnMainThreadLetsQueuedReleaseClose() throws {
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      var container: ModelContainer? = try autoreleasepool {
+        let container = try RunwayModelContainer.makeReadOnly(url: stores.old)
+        _ = try ModelContext(container).fetchCount(FetchDescriptor<Expense>())
+        return container
+      }
+      // The last reference goes only once the main thread runs queued work, like the closing work
+      // SwiftData can queue to the thread that released a container.
+      Task { @MainActor [container] in withExtendedLifetime(container) {} }
+      container = nil
+
+      var closed = false
+      let elapsed = ContinuousClock().measure {
+        closed = StoreMigration.waitUntilClosed(
+          stores.old,
+          deadline: ContinuousClock.now.advanced(by: .seconds(closeTimeout))
+        )
+      }
+
+      #expect(closed)
+      #expect(elapsed < .seconds(5))
+      // Closed means checkpointed: the `-wal` is empty or gone, whatever `-shm` is left.
+      let wal = sibling(of: stores.old, named: "default.store-wal")
+      let walAttributes = try? FileManager.default.attributesOfItem(atPath: wal.path)
+      #expect(((walAttributes?[.size] as? NSNumber)?.int64Value ?? 0) == 0)
+      #expect(StoreMigration.waitUntilClosed(stores.old, deadline: .now))
+    }
+  }
+
   @Test("The store, its sidecars, and external storage are all copied, then moved to the backup")
   func copiesEveryFile() throws {
     try withStores { stores in
