@@ -246,37 +246,35 @@ struct StoreMigrationTests {
     }
   }
 
-  @Test("Waiting on the main thread, as at launch, lets a container released there close the store")
+  @Test("Run on the main thread with the app's timeouts, as at launch, the old store closes and moves")
   @MainActor
-  func waitOnMainThreadLetsQueuedReleaseClose() throws {
+  func migratesOnMainThreadWithLaunchTimeouts() throws {
+    // `App.init` runs on the main thread. Hopping there here would queue behind this test instead.
+    #expect(Thread.isMainThread)
     try withStores { stores in
       try seedStore(at: stores.old)
-      var container: ModelContainer? = try autoreleasepool {
-        let container = try RunwayModelContainer.makeReadOnly(url: stores.old)
-        _ = try ModelContext(container).fetchCount(FetchDescriptor<Expense>())
-        return container
-      }
-      // The last reference goes only once the main run loop drains the main queue, like the closing
-      // work SwiftData can queue to the thread that released a container. A MainActor `Task` would
-      // not stand in: pumping the run loop in `.default` mode doesn't run Swift concurrency jobs.
-      DispatchQueue.main.async { [container] in withExtendedLifetime(container) {} }
-      container = nil
+      // At launch the previous process has exited, so no connection is left over from it.
+      try #require(waitUntilClosed(stores.old))
+      // The real counters open and release containers before each wait, as at launch.
+      let launch = StoreMigration(
+        oldStoreURL: stores.old,
+        newStoreURL: stores.new,
+        defaults: stores.defaults,
+        now: date,
+        closeTimeout: 5,
+        closeBudget: 10
+      )
 
-      var closed = false
-      let elapsed = ContinuousClock().measure {
-        closed = StoreMigration.waitUntilClosed(
-          stores.old,
-          deadline: ContinuousClock.now.advanced(by: .seconds(closeTimeout))
-        )
-      }
+      #expect(try launch.run() == .migrated)
 
-      #expect(closed)
-      #expect(elapsed < .seconds(5))
-      // Closed means checkpointed: the `-wal` is empty or gone, whatever `-shm` is left.
-      let wal = sibling(of: stores.old, named: "default.store-wal")
-      let walAttributes = try? FileManager.default.attributesOfItem(atPath: wal.path)
-      #expect(((walAttributes?[.size] as? NSNumber)?.int64Value ?? 0) == 0)
-      #expect(StoreMigration.waitUntilClosed(stores.old, deadline: .now))
+      // A wait that timed out still returns `.migrated`, but leaves the old store in place.
+      try expectSeededData(at: stores.new)
+      #expect(!exists(stores.old))
+      #expect(!exists(sibling(of: stores.old, named: "default.store-wal")))
+      #expect(!exists(sibling(of: stores.old, named: "default.store-shm")))
+      #expect(StoreMigration.isComplete(newStoreURL: stores.new))
+      #expect(StoreMigration.isRecordedComplete(in: stores.defaults))
+      try expectSeededData(at: backupURL(of: stores))
     }
   }
 
