@@ -256,9 +256,10 @@ struct StoreMigrationTests {
         _ = try ModelContext(container).fetchCount(FetchDescriptor<Expense>())
         return container
       }
-      // The last reference goes only once the main thread runs queued work, like the closing work
-      // SwiftData can queue to the thread that released a container.
-      Task { @MainActor [container] in withExtendedLifetime(container) {} }
+      // The last reference goes only once the main run loop drains the main queue, like the closing
+      // work SwiftData can queue to the thread that released a container. A MainActor `Task` would
+      // not stand in: pumping the run loop in `.default` mode doesn't run Swift concurrency jobs.
+      DispatchQueue.main.async { [container] in withExtendedLifetime(container) {} }
       container = nil
 
       var closed = false
