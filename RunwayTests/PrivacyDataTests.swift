@@ -280,7 +280,8 @@ struct PrivacyDataTests {
       #expect(budget.spendablePerPeriodCents == 240_000)
       #expect(budget.fixedBills.map(\.name).sorted() == ["Phone", "Rent"])
       let expenses = try loaded.fetch(FetchDescriptor<Expense>(sortBy: [SortDescriptor(\.date)]))
-      #expect(expenses.map(\.amountCents) == [1_250, -500])
+      #expect(expenses.map(\.amountCents) == [1_250, -500, 50_000])
+      #expect(expenses.map(\.isCardPayment) == [false, false, true])
       #expect(expenses[0].category?.name == "Food")
     }
   }
@@ -761,7 +762,8 @@ struct PrivacyDataTests {
       #expect(budget.spendablePerPeriodCents == 240_000)
       #expect(budget.fixedBills.map(\.name).sorted() == ["Phone", "Rent"])
       let expenses = try loaded.fetch(FetchDescriptor<Expense>(sortBy: [SortDescriptor(\.date)]))
-      #expect(expenses.map(\.amountCents) == [1_250, -500])
+      #expect(expenses.map(\.amountCents) == [1_250, -500, 50_000])
+      #expect(expenses.map(\.isCardPayment) == [false, false, true])
       #expect(expenses[0].category?.name == "Food")
     }
   }
