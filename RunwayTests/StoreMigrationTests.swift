@@ -246,7 +246,7 @@ struct StoreMigrationTests {
     }
   }
 
-  @Test("Run on the main thread with the app's timeouts, as at launch, the old store closes and moves")
+  @Test("Run on the main thread with launch timeouts: the old store closes and moves")
   @MainActor
   func migratesOnMainThreadWithLaunchTimeouts() throws {
     // `App.init` runs on the main thread. Hopping there here would queue behind this test instead.
