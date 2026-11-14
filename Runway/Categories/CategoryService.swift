@@ -132,7 +132,9 @@ struct CategoryService {
     note: String = "",
     date: Date = .now,
     category: Category? = nil,
-    now: Date = .now
+    now: Date = .now,
+    isCardPayment: Bool = false,
+    creditCard: CreditCard? = nil
   ) throws -> Expense {
     let assigned = try category ?? otherCategory()
     #if DEBUG
@@ -144,6 +146,8 @@ struct CategoryService {
     #endif
     context.insert(expense)
     expense.category = assigned
+    expense.isCardPayment = isCardPayment
+    expense.creditCard = creditCard
     return expense
   }
 

@@ -46,6 +46,23 @@ struct RunwaySnapshot: Codable, Equatable, Sendable {
     var note: String
     var date: Date
     var createdAt: Date
+    /// Missing in backups from before credit cards, which had no payments.
+    var isCardPayment = false
+    var creditCardID: Int?
+  }
+
+  struct CreditCardRecord: Codable, Equatable, Sendable {
+    var id: Int
+    var name: String
+    var statementDay: Int
+    var dueDay: Int
+    var autopay: Bool
+    var statementBalanceCents: Int?
+    var currentBalanceCents: Int?
+    var statementBalanceUpdatedAt: Date?
+    var currentBalanceUpdatedAt: Date?
+    var statementBalanceSource: CardBalanceSource
+    var currentBalanceSource: CardBalanceSource
   }
 
   struct CarryoverChangeRecord: Codable, Equatable, Sendable {
@@ -103,6 +120,46 @@ struct RunwaySnapshot: Codable, Equatable, Sendable {
   var scheduleChanges: [ScheduleChangeRecord]
   var extraMoney: [ExtraMoneyRecord]
   var billPayments: [BillPaymentRecord]
+  /// Missing in backups from before credit cards.
+  var creditCards: [CreditCardRecord] = []
+}
+
+// Decoders that default the fields older backups don't have. Defined in extensions so the
+// memberwise initializers stay.
+extension RunwaySnapshot {
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    formatVersion = try container.decode(Int.self, forKey: .formatVersion)
+    exportedAt = try container.decode(Date.self, forKey: .exportedAt)
+    categories = try container.decode([CategoryRecord].self, forKey: .categories)
+    budgets = try container.decode([BudgetRecord].self, forKey: .budgets)
+    fixedBills = try container.decode([FixedBillRecord].self, forKey: .fixedBills)
+    expenses = try container.decode([ExpenseRecord].self, forKey: .expenses)
+    carryoverChanges = try container.decode(
+      [CarryoverChangeRecord].self,
+      forKey: .carryoverChanges
+    )
+    amountChanges = try container.decode([AmountChangeRecord].self, forKey: .amountChanges)
+    scheduleChanges = try container.decode([ScheduleChangeRecord].self, forKey: .scheduleChanges)
+    extraMoney = try container.decode([ExtraMoneyRecord].self, forKey: .extraMoney)
+    billPayments = try container.decode([BillPaymentRecord].self, forKey: .billPayments)
+    creditCards =
+      try container.decodeIfPresent([CreditCardRecord].self, forKey: .creditCards) ?? []
+  }
+}
+
+extension RunwaySnapshot.ExpenseRecord {
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(Int.self, forKey: .id)
+    categoryID = try container.decodeIfPresent(Int.self, forKey: .categoryID)
+    amountCents = try container.decode(Int.self, forKey: .amountCents)
+    note = try container.decode(String.self, forKey: .note)
+    date = try container.decode(Date.self, forKey: .date)
+    createdAt = try container.decode(Date.self, forKey: .createdAt)
+    isCardPayment = try container.decodeIfPresent(Bool.self, forKey: .isCardPayment) ?? false
+    creditCardID = try container.decodeIfPresent(Int.self, forKey: .creditCardID)
+  }
 }
 
 /// Builds the JSON backup and the expenses spreadsheet. Neither changes the store.
@@ -125,10 +182,13 @@ enum DataExport {
       .sorted { ($0.date, $0.amountCents) < ($1.date, $1.amountCents) }
     let payments = try context.fetch(FetchDescriptor<BillPayment>())
       .sorted { ($0.date, $0.sequence) < ($1.date, $1.sequence) }
+    let cards = try context.fetch(FetchDescriptor<CreditCard>())
+      .sorted { ($0.name, $0.dueDay) < ($1.name, $1.dueDay) }
 
     let categoryIDs = identifiers(of: categories)
     let budgetIDs = identifiers(of: budgets)
     let billIDs = identifiers(of: bills)
+    let cardIDs = identifiers(of: cards)
     func budgetID(_ budget: Budget?) -> Int? {
       budget.flatMap { budgetIDs[$0.persistentModelID] }
     }
@@ -174,7 +234,9 @@ enum DataExport {
           amountCents: expense.amountCents,
           note: expense.note,
           date: expense.date,
-          createdAt: expense.createdAt
+          createdAt: expense.createdAt,
+          isCardPayment: expense.isCardPayment,
+          creditCardID: expense.creditCard.flatMap { cardIDs[$0.persistentModelID] }
         )
       },
       carryoverChanges: carryover.enumerated().map { index, change in
@@ -224,6 +286,21 @@ enum DataExport {
           adjustmentCents: payment.adjustmentCents,
           sequence: payment.sequence,
           date: payment.date
+        )
+      },
+      creditCards: cards.enumerated().map { index, card in
+        RunwaySnapshot.CreditCardRecord(
+          id: index + 1,
+          name: card.name,
+          statementDay: card.statementDay,
+          dueDay: card.dueDay,
+          autopay: card.autopay,
+          statementBalanceCents: card.statementBalanceCents,
+          currentBalanceCents: card.currentBalanceCents,
+          statementBalanceUpdatedAt: card.statementBalanceUpdatedAt,
+          currentBalanceUpdatedAt: card.currentBalanceUpdatedAt,
+          statementBalanceSource: card.statementBalanceSource,
+          currentBalanceSource: card.currentBalanceSource
         )
       }
     )

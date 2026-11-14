@@ -20,7 +20,7 @@ struct CategoryFollowupTests {
     let context = ModelContext(container)
     let service = CategoryService(context: context)
     try service.seed()
-    let categories: [RunwaySchemaV1.Category] = try service.categories()
+    let categories: [RunwaySchemaV2.Category] = try service.categories()
     let food = try #require(categories.first { $0.name == "Food" })
     let bills = try #require(categories.first { $0.name == "Bills" })
     let shopping = try #require(categories.first { $0.name == "Shopping" })
@@ -52,7 +52,7 @@ struct CategoryFollowupTests {
     let context = ModelContext(container)
     let service = CategoryService(context: context)
     try service.seed()
-    let categories: [RunwaySchemaV1.Category] = try service.categories()
+    let categories: [RunwaySchemaV2.Category] = try service.categories()
     let earlier = Date(timeIntervalSince1970: 100)
     let later = Date(timeIntervalSince1970: 200)
     try service.createExpense(

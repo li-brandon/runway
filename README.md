@@ -67,6 +67,15 @@ most recently logged distinct categories first, then the rest in saved order. It
 so logging a backdated expense still makes that category recent. Equal logging times keep saved
 order. Normal create/delete operations fetch Other directly and only seed if it is missing.
 
+## Credit cards
+
+**Credit Cards** in the Budget screen lists your cards by next due date, with the statement
+balance, due date, and days left. Each card has a name, statement and due days (the 29th–31st
+fall on a shorter month's last day), optional autopay, and separate statement and current
+balances. A balance you enter is marked stale once the next statement day begins (an imported one
+after 24 hours, though nothing imports yet). **Log Payment** records a payment with your expenses,
+labeled as a card payment. Payments never count as spending; purchases on a card still do.
+
 ## Today
 
 The large USD figure shows **Left to spend today**. It scales with Dynamic Type up to 96 points
@@ -178,6 +187,8 @@ end of its last extra money row.
 Privacy scenarios: `privacy-settings` (Privacy & Data with the lock on), `privacy-locked` (the lock
 screen), `privacy-import-confirm`, and `privacy-reset-confirm` (their confirm alerts). In-memory
 launches keep the lock setting in memory and never show a Face ID prompt.
+Credit card scenarios: `credit-cards` (two cards sorted by due date, one with autopay and one with
+a stale statement balance) and `credit-card-edit` (the editor on a card with both balances).
 The undo scenario delays showing its five-second banner until launch has settled for CI capture.
 
 ```sh
@@ -222,7 +233,8 @@ xcodebuild test \
 | Path | Contents |
 | --- | --- |
 | `Runway/App` | App entry point, first-launch routing, launch arguments |
-| `Runway/Models` | SwiftData models (`RunwaySchemaV1`) |
+| `Runway/Models` | SwiftData models (`RunwaySchemaV2`, and earlier versions for migration) |
+| `Runway/Cards` | Credit card due dates, stale balances, and the card editor's draft |
 | `Runway/Persistence` | Model container setup, migration plan, and the move to the App Group store |
 | `Runway/Money` | Cents ↔ dollars conversion and USD formatting |
 | `Runway/Engine` | Daily allowance and History engines and their mapping from the models |
@@ -239,8 +251,8 @@ Money is always stored and calculated as integer cents (`Int`). Values only beco
 display, and `Double` is never used for money.
 
 Schema changes go in a new `VersionedSchema` (`RunwaySchemaV2`, …) with a matching stage in
-`RunwayMigrationPlan`. Don't edit `RunwaySchemaV1` once it has shipped. V1 hasn't shipped yet, so
-until the first release it may still be edited in place without a migration.
+`RunwayMigrationPlan`. Don't edit a schema once it has shipped: `RunwaySchemaV1` (1.1.0) is frozen,
+and `RunwaySchemaV2` (2.0.0) is current.
 
 The store lives in the App Group container, at `Library/Application Support/default.store`, so
 widgets can read it. The first launch after the App Group was added moves an existing store there
@@ -321,7 +333,8 @@ macOS runner. It:
    `history-before-budget-bills` and `history-bill-entry-edit` use 476,
    `history-before-budget-row` uses 487, `history-extra-money` and
    `extra-money-edit-negative` use 475, and
-   `today-large-amount` and `extra-money` use 469, and `today-import-max` uses 477. A failed
+   `today-large-amount` and `extra-money` use 469, `today-import-max` uses 477, and
+   `credit-cards` and `credit-card-edit` use 441. A failed
    capture fails the job. Every scenario is captured at default and largest accessibility text sizes. Setup
    scenarios also get a second accessibility capture scrolled to the amount fields, and
    `history-period-summary` one scrolled to its categories, `history-before-budget` and

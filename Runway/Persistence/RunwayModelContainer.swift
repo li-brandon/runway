@@ -55,7 +55,7 @@ enum RunwayModelContainer {
       )
       return try make(url: url)
     }
-    let schema = Schema(versionedSchema: RunwaySchemaV1.self)
+    let schema = Schema(versionedSchema: RunwaySchemaV2.self)
     // Give each in-memory container its own store so parallel tests never share data.
     let configuration = ModelConfiguration(
       "Runway-\(UUID().uuidString)",
@@ -70,7 +70,7 @@ enum RunwayModelContainer {
   /// An on-disk store at `url`. Tests use it to simulate a relaunch by opening a second
   /// container on the same file.
   static func make(url: URL) throws -> ModelContainer {
-    let schema = Schema(versionedSchema: RunwaySchemaV1.self)
+    let schema = Schema(versionedSchema: RunwaySchemaV2.self)
     let configuration = ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none)
     return try make(schema: schema, configuration: configuration)
   }
@@ -90,7 +90,7 @@ enum RunwayModelContainer {
     guard FileManager.default.fileExists(atPath: url.path) else {
       throw RunwayStoreError.storeNotReady
     }
-    let schema = Schema(versionedSchema: RunwaySchemaV1.self)
+    let schema = Schema(versionedSchema: RunwaySchemaV2.self)
     let configuration = ModelConfiguration(
       schema: schema,
       url: url,
@@ -140,7 +140,7 @@ enum RunwayModelContainer {
 
   private static func counts(in context: ModelContext) throws -> [String: Int] {
     var counts: [String: Int] = [:]
-    for model in RunwaySchemaV1.models {
+    for model in RunwaySchemaV2.models {
       counts[String(describing: model)] = try count(model, in: context)
     }
     return counts

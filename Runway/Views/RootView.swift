@@ -48,6 +48,10 @@ private struct RootContent: View {
         }
       } else if screenshotScenario == .categoryPicker {
         CategoryPickerHost()
+      } else if let screenshotScenario, screenshotScenario.opensCreditCards {
+        NavigationStack {
+          CreditCardsView(opensFirstCard: screenshotScenario.opensCreditCardEdit)
+        }
       } else if screenshotScenario?.opensPrivacyData == true {
         NavigationStack {
           PrivacyDataView(screenshotScenario: screenshotScenario)

@@ -262,6 +262,7 @@ jobs:
           SCENARIOS="$SCENARIOS spending-day spending-week spending-month spending-month-rolling"
           SCENARIOS="$SCENARIOS privacy-settings privacy-locked privacy-import-confirm privacy-reset-confirm"
           SCENARIOS="$SCENARIOS today-large-amount extra-money"
+          SCENARIOS="$SCENARIOS credit-cards credit-card-edit"
           ticket_for() {
             case "$1" in
               setup-*) echo 430 ;;
@@ -281,6 +282,7 @@ jobs:
               privacy-*) echo 437 ;;
               today-large-amount|extra-money) echo 469 ;;
               today-import-max) echo 477 ;;
+              credit-cards|credit-card-edit) echo 441 ;;
               *) return 1 ;;
             esac
           }

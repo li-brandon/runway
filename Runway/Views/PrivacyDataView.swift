@@ -87,7 +87,7 @@ struct PrivacyDataView: View {
           showsResetConfirmation = true
         }
       } footer: {
-        Text("Erases your budget, bills, expenses, and categories from this iPhone.")
+        Text("Erases your budget, bills, expenses, categories, and credit cards from this iPhone.")
       }
     }
     .navigationTitle("Privacy & Data")

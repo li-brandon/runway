@@ -874,7 +874,7 @@ struct StoreMigrationTests {
   @Test("The legacy URL is where SwiftData's default configuration kept the store")
   func legacyURLMatchesDefaultConfiguration() {
     let configuration = ModelConfiguration(
-      schema: Schema(versionedSchema: RunwaySchemaV1.self),
+      schema: Schema(versionedSchema: RunwaySchemaV2.self),
       groupContainer: .none,
       cloudKitDatabase: .none
     )

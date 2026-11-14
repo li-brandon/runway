@@ -139,6 +139,22 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
   /// Privacy & Data with the reset confirm alert open.
   case privacyResetConfirm = "privacy-reset-confirm"
 
+  /// Credit cards sorted by due date: one with autopay and fresh balances, one with a stale
+  /// statement balance.
+  case creditCards = "credit-cards"
+  /// The card editor open on the card due soonest, with both balances filled.
+  case creditCardEdit = "credit-card-edit"
+
+  /// Opens Credit Cards directly at launch.
+  var opensCreditCards: Bool {
+    self == .creditCards || self == .creditCardEdit
+  }
+
+  /// Opens the editor on the first card at launch.
+  var opensCreditCardEdit: Bool {
+    self == .creditCardEdit
+  }
+
   var isPrivacy: Bool {
     switch self {
     case .privacySettings, .privacyLocked, .privacyImportConfirm, .privacyResetConfirm: true
@@ -222,6 +238,9 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     case .spendingDay, .spendingWeek, .spendingMonth, .spendingMonthRolling:
       return try seedSpending(into: context, now: now, calendar: calendar)
     case .setupEmpty, .todayNoBudget:
+      return nil
+    case .creditCards, .creditCardEdit:
+      try seedCreditCards(into: context, now: now, calendar: calendar)
       return nil
     case .categories, .categoryPicker:
       let service = CategoryService(context: context)
@@ -374,6 +393,29 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     }
     try context.save()
     return budget
+  }
+
+  /// Two cards, inserted latest due first so the list's sort shows. Travel Rewards is due in 5
+  /// days, has autopay, and has both balances entered now. Everyday Cash is due in 20 days, and
+  /// its statement balance was entered 45 days ago, so a statement day has passed since.
+  private func seedCreditCards(into context: ModelContext, now: Date, calendar: Calendar) throws {
+    func day(_ offset: Int) -> Int {
+      calendar.component(.day, from: calendar.date(byAdding: .day, value: offset, to: now)!)
+    }
+    let everyday = CreditCard(name: "Everyday Cash", statementDay: day(-5), dueDay: day(20))
+    let travel = CreditCard(
+      name: "Travel Rewards",
+      statementDay: day(-20),
+      dueDay: day(5),
+      autopay: true
+    )
+    context.insert(everyday)
+    context.insert(travel)
+    everyday.setStatementBalance(42_300, now: calendar.date(byAdding: .day, value: -45, to: now)!)
+    everyday.setCurrentBalance(51_875, now: now)
+    travel.setStatementBalance(84_215, now: now)
+    travel.setCurrentBalance(126_050, now: now)
+    try context.save()
   }
 
   /// Seventy days cover both calendar and rolling comparisons, with a higher recent spend.

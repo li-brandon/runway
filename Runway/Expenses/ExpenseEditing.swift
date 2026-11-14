@@ -48,13 +48,16 @@ extension ExpenseDraft {
 
 /// A deleted expense that can be restored for five seconds, like `ExpenseUndo`. Restoring creates
 /// it again through `CategoryService.createExpense` with the same amount, note, spending date,
-/// logging time, and category (Other if that category was deleted meanwhile).
+/// logging time, and category (Other if that category was deleted meanwhile). A card payment stays
+/// a payment, for the same card if it still exists.
 struct ExpenseDeletion {
   let amountCents: Int
   let note: String
   let date: Date
   let createdAt: Date
   let categoryID: PersistentIdentifier?
+  var isCardPayment = false
+  var creditCardID: PersistentIdentifier?
   let expiresAt: Date
 
   /// Deletes and saves `expense`. On a save failure the caller rolls back.
@@ -70,6 +73,8 @@ struct ExpenseDeletion {
       date: expense.date,
       createdAt: expense.createdAt,
       categoryID: expense.category?.persistentModelID,
+      isCardPayment: expense.isCardPayment,
+      creditCardID: expense.creditCard?.persistentModelID,
       expiresAt: now.addingTimeInterval(window)
     )
     context.delete(expense)
@@ -84,12 +89,17 @@ struct ExpenseDeletion {
     let service = CategoryService(context: context)
     // Look the category up again: it may have been deleted since.
     let category = try service.categories().first { $0.persistentModelID == categoryID }
+    let card = try context.fetch(FetchDescriptor<CreditCard>()).first {
+      $0.persistentModelID == creditCardID
+    }
     let expense = try service.createExpense(
       amountCents: amountCents,
       note: note,
       date: date,
       category: category,
-      now: createdAt
+      now: createdAt,
+      isCardPayment: isCardPayment,
+      creditCard: card
     )
     try context.save()
     return expense

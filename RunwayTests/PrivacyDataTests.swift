@@ -100,6 +100,19 @@ struct PrivacyDataTests {
     )
     context.insert(orphaned)
     orphaned.budget = budget
+
+    let card = CreditCard(name: "Visa", statementDay: 28, dueDay: 31, autopay: true)
+    context.insert(card)
+    card.setStatementBalance(84_215, now: calendar.date(2026, 6, 1, 8).addingTimeInterval(0.25))
+    card.currentBalanceCents = 12_345
+    card.currentBalanceSource = .imported
+    card.currentBalanceUpdatedAt = calendar.date(2026, 6, 9, 7)
+    try card.logPayment(
+      cents: 50_000,
+      date: calendar.date(2026, 6, 9, 10),
+      in: context,
+      now: calendar.date(2026, 6, 9, 10)
+    )
     try context.save()
   }
 
@@ -121,6 +134,7 @@ struct PrivacyDataTests {
       try context.fetchCount(FetchDescriptor<ScheduleChange>()),
       try context.fetchCount(FetchDescriptor<ExtraMoney>()),
       try context.fetchCount(FetchDescriptor<BillPayment>()),
+      try context.fetchCount(FetchDescriptor<CreditCard>()),
     ]
   }
 
@@ -129,7 +143,7 @@ struct PrivacyDataTests {
   @Test("Tests and snapshots cover every model in the schema")
   func coversSchema() throws {
     // A new model must be added to `RunwaySnapshot`, `counts(in:)`, and this number.
-    #expect(RunwaySchemaV1.models.count == 9)
+    #expect(RunwaySchemaV2.models.count == 10)
     let context = try makeContext()
     try seedEverything(into: context)
     #expect(try counts(in: context).allSatisfy { $0 > 0 })
@@ -162,6 +176,37 @@ struct PrivacyDataTests {
     #expect(expenses[1].amountCents == -500)
     #expect(expenses[1].category?.isSystem == true)
     #expect(budget.extraMoney.map(\.amountCents).sorted() == [-4_250, 15_000])
+    let card = try #require(try loaded.fetch(FetchDescriptor<CreditCard>()).first)
+    #expect(card.autopay && card.statementDay == 28 && card.dueDay == 31)
+    #expect(card.statementBalanceCents == 84_215 && card.statementBalanceSource == .manual)
+    #expect(card.currentBalanceCents == 12_345 && card.currentBalanceSource == .imported)
+    #expect(card.payments.map(\.amountCents) == [50_000])
+    #expect(expenses[2].isCardPayment && expenses[2].creditCard === card)
+    #expect(!expenses[0].isCardPayment && expenses[0].creditCard == nil)
+  }
+
+  @Test("A backup from before credit cards imports with no cards and no payments")
+  func importsBackupWithoutCards() throws {
+    let data = try DataExport.jsonData(from: try validSnapshot())
+    var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    object["creditCards"] = nil
+    var expenses = try #require(object["expenses"] as? [[String: Any]])
+    for index in expenses.indices {
+      expenses[index]["isCardPayment"] = nil
+      expenses[index]["creditCardID"] = nil
+    }
+    object["expenses"] = expenses
+    let old = try JSONSerialization.data(withJSONObject: object)
+
+    let validated = try DataImport.validate(old)
+    #expect(validated.snapshot.formatVersion == 1)
+    #expect(validated.snapshot.creditCards.isEmpty)
+    #expect(validated.snapshot.expenses.allSatisfy { !$0.isCardPayment && $0.creditCardID == nil })
+    let context = try makeContext()
+    try DataImport.apply(validated, to: context)
+    let loaded = ModelContext(context.container)
+    #expect(try loaded.fetchCount(FetchDescriptor<CreditCard>()) == 0)
+    #expect(try loaded.fetch(FetchDescriptor<Expense>()).allSatisfy { !$0.isCardPayment })
   }
 
   @Test("Import replaces all existing data")
@@ -235,7 +280,8 @@ struct PrivacyDataTests {
       #expect(budget.spendablePerPeriodCents == 240_000)
       #expect(budget.fixedBills.map(\.name).sorted() == ["Phone", "Rent"])
       let expenses = try loaded.fetch(FetchDescriptor<Expense>(sortBy: [SortDescriptor(\.date)]))
-      #expect(expenses.map(\.amountCents) == [1_250, -500])
+      #expect(expenses.map(\.amountCents) == [1_250, -500, 50_000])
+      #expect(expenses.map(\.isCardPayment) == [false, false, true])
       #expect(expenses[0].category?.name == "Food")
     }
   }
@@ -503,6 +549,23 @@ struct PrivacyDataTests {
     try expectRejected(.amountTooLarge("expense amount")) { $0.expenses[0].amountCents = .max }
     try expectRejected(.amountTooLarge("expense amount")) { $0.expenses[0].amountCents = .min }
     try expectRejected(.dateOutOfRange("expense date")) { $0.expenses[0].date = .distantFuture }
+    try expectRejected(.duplicateID("credit cards")) {
+      $0.creditCards.append($0.creditCards[0])
+    }
+    try expectRejected(.invalidField("credit card name")) { $0.creditCards[0].name = " " }
+    try expectRejected(.invalidField("credit card statement day")) {
+      $0.creditCards[0].statementDay = 0
+    }
+    try expectRejected(.invalidField("credit card due day")) { $0.creditCards[0].dueDay = 32 }
+    try expectRejected(.negativeAmount("credit card statement balance")) {
+      $0.creditCards[0].statementBalanceCents = -1
+    }
+    try expectRejected(.negativeAmount("credit card current balance")) {
+      $0.creditCards[0].currentBalanceCents = -1
+    }
+    try expectRejected(.danglingReference("expense credit card")) {
+      $0.expenses[0].creditCardID = 999
+    }
   }
 
   // MARK: - CSV
@@ -638,9 +701,9 @@ struct PrivacyDataTests {
 
     // The live context sees the result too, which is what the rebuilt views read.
     #expect(!context.hasChanges)
-    #expect(try counts(in: context) == [0, 0, 0, 7, 0, 0, 0, 0, 0])
+    #expect(try counts(in: context) == [0, 0, 0, 7, 0, 0, 0, 0, 0, 0])
     let loaded = ModelContext(context.container)
-    #expect(try counts(in: loaded) == [0, 0, 0, 7, 0, 0, 0, 0, 0])
+    #expect(try counts(in: loaded) == [0, 0, 0, 7, 0, 0, 0, 0, 0, 0])
     let service = CategoryService(context: loaded)
     let categories = try service.categories()
     #expect(categories.map(\.name) == CategoryService.defaultNames)
@@ -665,7 +728,7 @@ struct PrivacyDataTests {
     }
 
     #expect(saveAttempts == 1)
-    #expect(try counts(in: context) == [0, 0, 0, 7, 0, 0, 0, 0, 0])
+    #expect(try counts(in: context) == [0, 0, 0, 7, 0, 0, 0, 0, 0, 0])
   }
 
   @Test("A failed reset save throws and leaves existing data unchanged")
@@ -699,7 +762,8 @@ struct PrivacyDataTests {
       #expect(budget.spendablePerPeriodCents == 240_000)
       #expect(budget.fixedBills.map(\.name).sorted() == ["Phone", "Rent"])
       let expenses = try loaded.fetch(FetchDescriptor<Expense>(sortBy: [SortDescriptor(\.date)]))
-      #expect(expenses.map(\.amountCents) == [1_250, -500])
+      #expect(expenses.map(\.amountCents) == [1_250, -500, 50_000])
+      #expect(expenses.map(\.isCardPayment) == [false, false, true])
       #expect(expenses[0].category?.name == "Food")
     }
   }

@@ -846,7 +846,10 @@ struct HistoryExpenseRow: View {
 
   private var amount: some View {
     HStack(spacing: 6) {
-      if expense.amountCents < 0 {
+      if expense.isCardPayment {
+        Label("Card payment", systemImage: "creditcard")
+          .font(.subheadline)
+      } else if expense.amountCents < 0 {
         Label("Refund", systemImage: "arrow.uturn.backward")
           .font(.subheadline)
       }
