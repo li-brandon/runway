@@ -397,7 +397,8 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
 
   /// Two cards, inserted latest due first so the list's sort shows. Travel Rewards is due in 5
   /// days, has autopay, and has both balances entered now. Everyday Cash is due in 20 days, and
-  /// its statement balance was entered 45 days ago, so a statement day has passed since.
+  /// its statement balance was entered 45 days ago, so a statement day has passed since. Both have
+  /// purchases this month and last month, and Travel Rewards a payment, which isn't spending.
   private func seedCreditCards(into context: ModelContext, now: Date, calendar: Calendar) throws {
     func day(_ offset: Int) -> Int {
       calendar.component(.day, from: calendar.date(byAdding: .day, value: offset, to: now)!)
@@ -415,6 +416,28 @@ enum ScreenshotScenario: String, CaseIterable, Sendable {
     everyday.setCurrentBalance(51_875, now: now)
     travel.setStatementBalance(84_215, now: now)
     travel.setCurrentBalance(126_050, now: now)
+    let service = CategoryService(context: context)
+    try service.seed()
+    let categories = try service.categories()
+    let today = calendar.startOfDay(for: now)
+    let lastMonth = calendar.date(byAdding: .month, value: -1, to: today)!
+    let purchases: [(CreditCard, Int, String, String, Date)] = [
+      (everyday, 6_480, "Groceries", "Groceries", today),
+      (everyday, 9_215, "Groceries", "Groceries", lastMonth),
+      (travel, 32_000, "Flight", "Transport", today),
+      (travel, 18_450, "Hotel", "Shopping", lastMonth),
+    ]
+    for (card, cents, note, category, date) in purchases {
+      try service.createExpense(
+        amountCents: cents,
+        note: note,
+        date: date,
+        category: categories.first { $0.name == category },
+        now: date,
+        creditCard: card
+      )
+    }
+    try travel.logPayment(cents: 50_000, date: lastMonth, in: context, now: lastMonth)
     try context.save()
   }
 
