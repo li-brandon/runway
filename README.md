@@ -76,6 +76,19 @@ balances. A balance you enter is marked stale once the next statement day begins
 after 24 hours, though nothing imports yet). **Log Payment** records a payment with your expenses,
 labeled as a card payment. Payments never count as spending; purchases on a card still do.
 
+## Savings cushion
+
+**Savings Cushion**, linked from Credit Cards, keeps enough in checking for every upcoming card
+payment: each card's positive statement balance, due on its next due date. List your accounts,
+mark each as Checking, Savings, or Not counted, and enter balances by hand (a blank one counts as
+$0). The cushion is the payments plus an optional fixed buffer. If checking holds less, it says to
+move the difference from savings, by the due date of the first payment, soonest first, that
+checking can't cover (the buffer counts as needed by the first payment; a buffer with no payments
+has no date), and whether that's before your next payday. It warns when savings can't cover the
+transfer. With **Reserve in Left to spend today** on, Today holds back the amount still to move
+from the period's money before dividing it into days. The reserve never takes more than the
+period has left, so on its own it never shows Over budget. History and widgets don't reserve it.
+
 ## Today
 
 The large USD figure shows **Left to spend today**. It scales with Dynamic Type up to 96 points
@@ -233,8 +246,8 @@ xcodebuild test \
 | Path | Contents |
 | --- | --- |
 | `Runway/App` | App entry point, first-launch routing, launch arguments |
-| `Runway/Models` | SwiftData models (`RunwaySchemaV2`, and earlier versions for migration) |
-| `Runway/Cards` | Credit card due dates, stale balances, and the card editor's draft |
+| `Runway/Models` | SwiftData models (`RunwaySchemaV3`, and earlier versions for migration) |
+| `Runway/Cards` | Credit card due dates, stale balances, the savings cushion, and their editors' drafts |
 | `Runway/Persistence` | Model container setup, migration plan, and the move to the App Group store |
 | `Runway/Money` | Cents ↔ dollars conversion and USD formatting |
 | `Runway/Engine` | Daily allowance and History engines and their mapping from the models |
@@ -251,8 +264,8 @@ Money is always stored and calculated as integer cents (`Int`). Values only beco
 display, and `Double` is never used for money.
 
 Schema changes go in a new `VersionedSchema` (`RunwaySchemaV2`, …) with a matching stage in
-`RunwayMigrationPlan`. Don't edit a schema once it has shipped: `RunwaySchemaV1` (1.1.0) is frozen,
-and `RunwaySchemaV2` (2.0.0) is current.
+`RunwayMigrationPlan`. Don't edit a schema once it has shipped: `RunwaySchemaV1` (1.1.0) and
+`RunwaySchemaV2` (2.0.0) are frozen, and `RunwaySchemaV3` (3.0.0) is current.
 
 The store lives in the App Group container, at `Library/Application Support/default.store`, so
 widgets can read it. The first launch after the App Group was added moves an existing store there

@@ -1,8 +1,8 @@
 import Foundation
 import SwiftData
 
-/// Current schema (2.0.0): adds credit cards and card payment expenses. New attributes have
-/// defaults and new relationships start empty, so 1.1.0 stores migrate lightweight.
+/// Frozen 2.0.0 schema, retained so existing stores can migrate to `RunwaySchemaV3`. It added
+/// credit cards and card payment expenses to the 1.1.0 `RunwaySchemaV1`.
 enum RunwaySchemaV2: VersionedSchema {
   static var versionIdentifier: Schema.Version {
     Schema.Version(2, 0, 0)
@@ -16,18 +16,8 @@ enum RunwaySchemaV2: VersionedSchema {
   }
 }
 
-typealias Budget = RunwaySchemaV2.Budget
-typealias FixedBill = RunwaySchemaV2.FixedBill
-typealias Expense = RunwaySchemaV2.Expense
-typealias Category = RunwaySchemaV2.Category
-typealias CarryoverChange = RunwaySchemaV2.CarryoverChange
-typealias AmountChange = RunwaySchemaV2.AmountChange
-typealias ScheduleChange = RunwaySchemaV2.ScheduleChange
-typealias ExtraMoney = RunwaySchemaV2.ExtraMoney
-typealias BillPayment = RunwaySchemaV2.BillPayment
-typealias CreditCard = RunwaySchemaV2.CreditCard
-
-/// Where a card balance came from. Editing a balance in Runway always makes it `manual`.
+/// Where a card or account balance came from. Editing a balance in Runway always makes it
+/// `manual`.
 enum CardBalanceSource: String, Codable, Sendable {
   case manual
   case imported

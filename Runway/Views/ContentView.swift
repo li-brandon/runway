@@ -20,6 +20,8 @@ struct ContentView: View {
   @State private var now = Date.now
 
   @Query(sort: \Expense.date, order: .reverse) private var expenses: [Expense]
+  @Query private var creditCards: [CreditCard]
+  @Query private var cashAccounts: [CashAccount]
   @State private var showsSetup: Bool
 
   @State private var showsQuickLog = false
@@ -107,6 +109,9 @@ struct ContentView: View {
               }
               if allowance.extraCents != 0 {
                 Text("Extra money this period: \(Money.format(cents: allowance.extraCents))")
+              }
+              if allowance.reservedCents > 0 {
+                Text("Reserved for cushion: \(Money.format(cents: allowance.reservedCents))")
               }
               if let pendingCarryoverText {
                 Text(pendingCarryoverText)
@@ -418,7 +423,13 @@ struct ContentView: View {
     AllowanceEngine(calendar: .current).currentAllowance(
       budget: BudgetSnapshot(budget),
       expenses: expenses.map { ExpenseSnapshot($0) },
-      now: displayNow
+      now: displayNow,
+      reserveCents: budget.cushionReserveCents(
+        cards: creditCards,
+        accounts: cashAccounts,
+        now: displayNow,
+        calendar: .current
+      )
     )
   }
 

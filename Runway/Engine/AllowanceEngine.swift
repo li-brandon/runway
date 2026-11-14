@@ -61,16 +61,23 @@ import Foundation
 /// - **Spendable** here is whatever the caller passes as `spendablePerPeriodCents`. The adapter
 ///   for the persisted `Budget` passes its available amount (spendable − fixed bills − savings),
 ///   so bills and savings never count as day-to-day money.
+/// - **Reserve** (`reserveCents`, 0 by default; the savings cushion's transfer) is held back
+///   from the period's money before it's divided into days, so it lowers today's allowance and
+///   the period's remainder. Negative counts as 0. It only holds back money that's there, so on
+///   its own it never puts today over budget. Only today's figures use it; carryover and History
+///   never do.
 struct AllowanceEngine: Sendable {
   let calendar: Calendar
 
   // MARK: - Allowance
 
-  /// Today's allowance for the period containing `now`, chaining carryover from the anchor.
+  /// Today's allowance for the period containing `now`, chaining carryover from the anchor, less
+  /// `reserveCents` (see the type's documentation).
   func currentAllowance(
     budget: BudgetSnapshot,
     expenses: [ExpenseSnapshot],
-    now: Date
+    now: Date,
+    reserveCents: Int = 0
   ) -> AllowanceResult {
     let current = period(containing: now, of: budget)
     let carryIn = carryInCents(to: current, budget: budget, expenses: expenses)
@@ -79,7 +86,8 @@ struct AllowanceEngine: Sendable {
       budget: budget,
       expenses: expenses,
       carryInCents: carryIn,
-      now: now
+      now: now,
+      reserveCents: reserveCents
     )
   }
 
@@ -105,7 +113,8 @@ struct AllowanceEngine: Sendable {
     budget: BudgetSnapshot,
     expenses: [ExpenseSnapshot],
     carryInCents: Int,
-    now: Date
+    now: Date,
+    reserveCents: Int = 0
   ) -> AllowanceResult {
     // Before the period, preview its first day. After it, `todayEnd <= todayStart`, so no expense
     // counts as today's and everything in the period counts as spent before today.
@@ -134,7 +143,9 @@ struct AllowanceEngine: Sendable {
       spendable = spendableCents(of: period, budget: budget)
       divisor = 1
     }
-    let availableCents = spendable + carryInCents + extra - spentBeforeTodayCents
+    let unreservedCents = spendable + carryInCents + extra - spentBeforeTodayCents
+    let reservedCents = min(max(0, reserveCents), max(0, unreservedCents))
+    let availableCents = unreservedCents - reservedCents
     let allowanceTodayCents = Self.floorDivide(availableCents, by: divisor)
     let remainingTodayCents = allowanceTodayCents - spentTodayCents
     let remainingPeriodCents = availableCents - spentTodayCents
@@ -147,7 +158,8 @@ struct AllowanceEngine: Sendable {
       remainingPeriodCents: remainingPeriodCents,
       daysLeft: daysLeft,
       isOverBudget: remainingTodayCents < 0 || remainingPeriodCents < 0,
-      extraCents: extra
+      extraCents: extra,
+      reservedCents: reservedCents
     )
   }
 
@@ -515,6 +527,8 @@ struct AllowanceResult: Equatable, Sendable {
   var isOverBudget: Bool
   /// Extra money in the period through today.
   var extraCents = 0
+  /// What the reserve held back from the period's money: 0 without one.
+  var reservedCents = 0
 
   var periodStart: Date { period.start }
   var periodEnd: Date { period.end }
