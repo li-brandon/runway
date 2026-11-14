@@ -245,17 +245,26 @@ struct StoreMigration {
   static func waitUntilClosed(_ storeURL: URL, deadline: ContinuousClock.Instant) -> Bool {
     while hasOpenConnection(to: storeURL) {
       guard ContinuousClock.now < deadline else { return false }
-      pauseBetweenChecks()
+      pauseBetweenChecks(deadline: deadline)
     }
     return true
   }
 
-  /// Runs the current run loop between checks rather than sleeping. A released container can
-  /// finish closing with work queued to the thread that's waiting, as on the main thread at launch,
-  /// and sleeping through it would keep the store open until the deadline. A run loop with nothing
-  /// to run returns at once, so the rest of the pause is slept.
-  private static func pauseBetweenChecks() {
+  /// A released container finishes closing its store with work queued to the main queue, whichever
+  /// thread released it. On the main thread, as at launch, this runs the main run loop rather than
+  /// sleeping, which runs that work; one with nothing to run returns at once, and the rest of the
+  /// pause is slept. On any other thread it waits, until `deadline` at most, for the main queue to
+  /// run everything queued so far, since how soon it does depends on what else the main thread is
+  /// doing.
+  private static func pauseBetweenChecks(deadline: ContinuousClock.Instant) {
     let end = Date(timeIntervalSinceNow: 0.02)
+    guard Thread.isMainThread else {
+      let drained = DispatchSemaphore(value: 0)
+      DispatchQueue.main.async { drained.signal() }
+      _ = drained.wait(timeout: .now() + ContinuousClock.now.duration(to: deadline) / .seconds(1))
+      Thread.sleep(until: end)
+      return
+    }
     while Date() < end {
       guard RunLoop.current.run(mode: .default, before: end) else {
         Thread.sleep(until: end)
@@ -350,7 +359,7 @@ struct StoreMigration {
         fileManager.fileExists(atPath: $0.path)
       }
       guard !isCleared, ContinuousClock.now < deadline else { return }
-      Self.pauseBetweenChecks()
+      Self.pauseBetweenChecks(deadline: deadline)
     }
   }
 

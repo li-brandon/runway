@@ -60,12 +60,27 @@ struct StoreMigrationTests {
 
   /// Waits until every connection to the store has closed and its `-wal` is merged, as the
   /// migration does before it stamps the store.
+  ///
+  /// A released container closes its store with work queued to the main queue, which other suites'
+  /// main-actor tests can keep busy for long. So off the main thread this first waits for the main
+  /// queue to run everything queued so far, and the budget only covers SQLite closing the store.
   private func waitUntilClosed(_ url: URL) -> Bool {
-    let started = ContinuousClock.now
-    let result = StoreMigration.waitUntilClosed(
-      url,
-      deadline: started.advanced(by: .seconds(closeBudget))
-    )
+    let clock = ContinuousClock()
+    let started = clock.now
+    var drain = Duration.zero
+    if !Thread.isMainThread {
+      drain = clock.measure { DispatchQueue.main.sync {} }
+    }
+    let closedAfterDrain = StoreMigration.waitUntilClosed(url, deadline: clock.now)
+    let deadline = clock.now.advanced(by: .seconds(closeBudget))
+    let result = closedAfterDrain || StoreMigration.waitUntilClosed(url, deadline: deadline)
+    let line = """
+      TIMING StoreMigrationTests/waitUntilClosed main drain: \(drain), \
+      closed after drain: \(closedAfterDrain), total: \(started.duration(to: clock.now)) \
+      (\(Test.current?.name ?? "unknown test"))
+      """
+    // CI prints these from the result bundle, since test output doesn't reach its log.
+    Attachment.record(line, named: "TIMING-waitUntilClosed.txt")
     if !result {
       let elapsed = started.duration(to: .now).components.seconds
       // Diagnostic: check if store file exists and get WAL status
