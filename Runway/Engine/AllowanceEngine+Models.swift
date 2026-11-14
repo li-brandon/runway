@@ -55,7 +55,11 @@ extension CarryoverChangeSnapshot {
 
 extension ExpenseSnapshot {
   init(_ expense: Expense) {
-    self.init(amountCents: expense.amountCents, date: expense.date)
+    self.init(
+      amountCents: expense.amountCents,
+      date: expense.date,
+      isCardPayment: expense.isCardPayment
+    )
   }
 }
 
@@ -64,7 +68,8 @@ extension HistoryExpense where CategoryID == PersistentIdentifier? {
     self.init(
       amountCents: expense.amountCents,
       date: expense.date,
-      categoryID: expense.category?.persistentModelID
+      categoryID: expense.category?.persistentModelID,
+      isCardPayment: expense.isCardPayment
     )
   }
 }

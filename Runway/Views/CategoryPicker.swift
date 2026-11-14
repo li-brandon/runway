@@ -12,7 +12,7 @@ struct CategoryPicker: View {
 
   private var ordered: [Category] {
     let usage = expenses.compactMap { expense -> (id: PersistentIdentifier, date: Date)? in
-      guard let category = expense.category else { return nil }
+      guard !expense.isCardPayment, let category = expense.category else { return nil }
       return (id: category.persistentModelID, date: expense.createdAt)
     }
     let ids = CategoryOrdering.orderedIDs(in: categories.map(\.persistentModelID), usage: usage)

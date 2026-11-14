@@ -163,8 +163,33 @@ struct AppLaunchTests {
         "privacy-locked",
         "privacy-import-confirm",
         "privacy-reset-confirm",
+        "credit-cards",
+        "credit-card-edit",
       ]
     )
+  }
+
+  @Test("Credit card scenarios open the list, sorted by due date, with stale and autopay cards")
+  func creditCardScenarios() throws {
+    let opensCards = ScreenshotScenario.allCases.filter(\.opensCreditCards)
+    #expect(opensCards == [.creditCards, .creditCardEdit])
+    #expect(ScreenshotScenario.allCases.filter(\.opensCreditCardEdit) == [.creditCardEdit])
+
+    let now = calendar.date(2026, 6, 10, 12)
+    for scenario in opensCards {
+      let container = try RunwayModelContainer.make(inMemory: true)
+      let context = ModelContext(container)
+      #expect(try scenario.seed(into: context, now: now, calendar: calendar) == nil)
+      let cards = try ModelContext(container).fetch(FetchDescriptor<CreditCard>())
+      let sorted = CreditCardDates.sorted(cards, now: now, calendar: calendar)
+      #expect(sorted.map(\.name) == ["Travel Rewards", "Everyday Cash"])
+      let dueDates = sorted.map { $0.nextDueDate(now: now, calendar: calendar) }
+      #expect(dueDates == [calendar.date(2026, 6, 15), calendar.date(2026, 6, 30)])
+      #expect(sorted.map { $0.hasStaleBalance(now: now, calendar: calendar) } == [false, true])
+      #expect(sorted.map(\.autopay) == [true, false])
+      // The editor opens on the first card, which has both balances.
+      #expect(sorted[0].statementBalanceCents != nil && sorted[0].currentBalanceCents != nil)
+    }
   }
 
   @Test("Budget-change scenarios open setup with unsaved edits or seed this period's money")

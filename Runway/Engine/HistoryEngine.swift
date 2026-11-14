@@ -41,7 +41,8 @@ struct HistoryEngine: Sendable {
     let all = engine.periods(through: now, of: budget)
     let todayStart = calendar.startOfDay(for: now)
     let anchor = all[0].start
-    let sorted = expenses.filter { $0.date >= anchor }.sorted { $0.date < $1.date }
+    let sorted = expenses.filter { !$0.isCardPayment && $0.date >= anchor }
+      .sorted { $0.date < $1.date }
     let extras = budget.extraMoney.filter { $0.date >= anchor }.sorted { $0.date < $1.date }
 
     var cursor = 0
@@ -210,6 +211,8 @@ struct HistoryExpense<CategoryID: Hashable & Sendable>: Equatable, Sendable {
   var amountCents: Int
   var date: Date
   var categoryID: CategoryID
+  /// Credit card payments never count as spending.
+  var isCardPayment = false
 }
 
 // MARK: - Outputs

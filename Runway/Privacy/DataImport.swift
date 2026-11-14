@@ -88,6 +88,7 @@ enum DataImport {
     let categoryIDs = try uniqueIDs(snapshot.categories.map(\.id), in: "categories")
     let budgetIDs = try uniqueIDs(snapshot.budgets.map(\.id), in: "budgets")
     let billIDs = try uniqueIDs(snapshot.fixedBills.map(\.id), in: "bills")
+    let cardIDs = try uniqueIDs(snapshot.creditCards.map(\.id), in: "credit cards")
     _ = try uniqueIDs(snapshot.expenses.map(\.id), in: "expenses")
     _ = try uniqueIDs(snapshot.carryoverChanges.map(\.id), in: "carryover changes")
     _ = try uniqueIDs(snapshot.amountChanges.map(\.id), in: "amount changes")
@@ -121,8 +122,31 @@ enum DataImport {
       }
     }
 
+    for card in snapshot.creditCards {
+      try checkNotBlank(card.name, field: "credit card name")
+      guard (1...31).contains(card.statementDay) else {
+        throw DataImportError.invalidField("credit card statement day")
+      }
+      guard (1...31).contains(card.dueDay) else {
+        throw DataImportError.invalidField("credit card due day")
+      }
+      if let cents = card.statementBalanceCents {
+        try checkAmount(cents, field: "credit card statement balance")
+      }
+      if let cents = card.currentBalanceCents {
+        try checkAmount(cents, field: "credit card current balance")
+      }
+      if let date = card.statementBalanceUpdatedAt {
+        try checkDate(date, field: "credit card statement balance date")
+      }
+      if let date = card.currentBalanceUpdatedAt {
+        try checkDate(date, field: "credit card current balance date")
+      }
+    }
+
     for expense in snapshot.expenses {
       try checkReference(expense.categoryID, in: categoryIDs, field: "expense category")
+      try checkReference(expense.creditCardID, in: cardIDs, field: "expense credit card")
       // Refunds are negative expenses, so only the size is limited.
       try checkSignedAmount(expense.amountCents, field: "expense amount")
       try checkDate(expense.date, field: "expense date")
@@ -235,6 +259,24 @@ enum DataImport {
       bills[record.id] = bill
     }
 
+    var cards: [Int: CreditCard] = [:]
+    for record in snapshot.creditCards {
+      let card = CreditCard(
+        name: record.name,
+        statementDay: record.statementDay,
+        dueDay: record.dueDay,
+        autopay: record.autopay
+      )
+      context.insert(card)
+      card.statementBalanceCents = record.statementBalanceCents
+      card.currentBalanceCents = record.currentBalanceCents
+      card.statementBalanceUpdatedAt = record.statementBalanceUpdatedAt
+      card.currentBalanceUpdatedAt = record.currentBalanceUpdatedAt
+      card.statementBalanceSource = record.statementBalanceSource
+      card.currentBalanceSource = record.currentBalanceSource
+      cards[record.id] = card
+    }
+
     // Passing a category always, so the service never fetches while deletes are pending. An
     // expense with no category gets Other, the same repair `CategoryService.seed` makes at launch.
     let service = CategoryService(context: context)
@@ -244,7 +286,9 @@ enum DataImport {
         note: record.note,
         date: record.date,
         category: record.categoryID.flatMap { categories[$0] } ?? other,
-        now: record.createdAt
+        now: record.createdAt,
+        isCardPayment: record.isCardPayment,
+        creditCard: record.creditCardID.flatMap { cards[$0] }
       )
     }
 
