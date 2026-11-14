@@ -246,6 +246,38 @@ struct StoreMigrationTests {
     }
   }
 
+  @Test("Run on the main thread with launch timeouts: the old store closes and moves")
+  @MainActor
+  func migratesOnMainThreadWithLaunchTimeouts() throws {
+    // `App.init` runs on the main thread. Hopping there here would queue behind this test instead.
+    #expect(Thread.isMainThread)
+    try withStores { stores in
+      try seedStore(at: stores.old)
+      // At launch the previous process has exited, so no connection is left over from it.
+      try #require(waitUntilClosed(stores.old))
+      // The real counters open and release containers before each wait, as at launch.
+      let launch = StoreMigration(
+        oldStoreURL: stores.old,
+        newStoreURL: stores.new,
+        defaults: stores.defaults,
+        now: date,
+        closeTimeout: 5,
+        closeBudget: 10
+      )
+
+      #expect(try launch.run() == .migrated)
+
+      // A wait that timed out still returns `.migrated`, but leaves the old store in place.
+      try expectSeededData(at: stores.new)
+      #expect(!exists(stores.old))
+      #expect(!exists(sibling(of: stores.old, named: "default.store-wal")))
+      #expect(!exists(sibling(of: stores.old, named: "default.store-shm")))
+      #expect(StoreMigration.isComplete(newStoreURL: stores.new))
+      #expect(StoreMigration.isRecordedComplete(in: stores.defaults))
+      try expectSeededData(at: backupURL(of: stores))
+    }
+  }
+
   @Test("The store, its sidecars, and external storage are all copied, then moved to the backup")
   func copiesEveryFile() throws {
     try withStores { stores in
