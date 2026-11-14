@@ -10,7 +10,8 @@ struct ScheduledCardPayment: Identifiable {
   let dueDate: Date
   /// Whole days from the start of today to `dueDate`: 0 when it's due today.
   let daysLeft: Int
-  /// Every payment due through this one, in schedule order: the cash needed by `dueDate`.
+  /// Every payment due on or before `dueDate`, this card's and others': the cash needed by then.
+  /// Payments sharing a due date share this total.
   let cashNeededCents: Int
   /// Due before the next payday. A payment due on payday itself isn't.
   let isBeforePayday: Bool
@@ -20,8 +21,8 @@ struct ScheduledCardPayment: Identifiable {
   var id: ObjectIdentifier { ObjectIdentifier(card) }
 }
 
-/// Upcoming card payments, soonest due first, with the cash needed by each due date. Days are
-/// local days in `calendar`.
+/// Upcoming card payments, soonest due first, with the cash needed by each due date: the total of
+/// every payment due on or before it. Days are local days in `calendar`.
 struct CardPayoffSchedule {
   /// Days left within which a card without autopay needs attention.
   static let autopayAttentionDays = 0...3
@@ -34,27 +35,33 @@ struct CardPayoffSchedule {
   /// Pays each card's statement balance on its next due date. Cards without a positive statement
   /// balance have nothing to pay, so they're skipped. With no `nextPayday`, nothing is before it.
   init(cards: [CreditCard], now: Date, nextPayday: Date?, calendar: Calendar) {
-    var cashNeededCents = 0
-    var payments: [ScheduledCardPayment] = []
-    for card in CreditCardDates.sorted(cards, now: now, calendar: calendar) {
-      guard let amountCents = card.statementBalanceCents, amountCents > 0 else { continue }
-      let dueDate = card.nextDueDate(now: now, calendar: calendar)
-      let daysLeft = CreditCardDates.daysLeft(until: dueDate, now: now, calendar: calendar)
-      cashNeededCents += amountCents
-      payments.append(
-        ScheduledCardPayment(
-          card: card,
-          name: card.name,
-          amountCents: amountCents,
-          dueDate: dueDate,
-          daysLeft: daysLeft,
-          cashNeededCents: cashNeededCents,
-          isBeforePayday: nextPayday.map { dueDate < $0 } ?? false,
-          needsAutopayAttention: !card.autopay && Self.autopayAttentionDays.contains(daysLeft)
-        )
+    let due = CreditCardDates.sorted(cards, now: now, calendar: calendar).compactMap {
+      card -> (card: CreditCard, amountCents: Int, dueDate: Date)? in
+      guard let amountCents = card.statementBalanceCents, amountCents > 0 else { return nil }
+      return (card, amountCents, card.nextDueDate(now: now, calendar: calendar))
+    }
+    // Payments run by due date, so the running total after a date's last payment covers every
+    // payment due through that date.
+    var cashNeededByDate: [Date: Int] = [:]
+    var runningCents = 0
+    for payment in due {
+      runningCents += payment.amountCents
+      cashNeededByDate[payment.dueDate] = runningCents
+    }
+    payments = due.map { payment in
+      let daysLeft = CreditCardDates.daysLeft(until: payment.dueDate, now: now, calendar: calendar)
+      return ScheduledCardPayment(
+        card: payment.card,
+        name: payment.card.name,
+        amountCents: payment.amountCents,
+        dueDate: payment.dueDate,
+        daysLeft: daysLeft,
+        cashNeededCents: cashNeededByDate[payment.dueDate]!,
+        isBeforePayday: nextPayday.map { payment.dueDate < $0 } ?? false,
+        needsAutopayAttention: !payment.card.autopay
+          && Self.autopayAttentionDays.contains(daysLeft)
       )
     }
-    self.payments = payments
     self.nextPayday = nextPayday
   }
 

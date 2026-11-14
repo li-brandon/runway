@@ -66,8 +66,45 @@ struct PayoffScheduleTests {
       ]
     )
     #expect(payments.map(\.amountCents) == [3_000, 5_000, 20_000, 10_000])
-    #expect(payments.map(\.cashNeededCents) == [3_000, 8_000, 28_000, 38_000])
+    #expect(payments.map(\.cashNeededCents) == [3_000, 28_000, 28_000, 38_000])
     #expect(payments.map(\.daysLeft) == [0, 4, 4, 27])
+  }
+
+  @Test("Payments sharing a due date share the cash needed by it, first date or not")
+  func sharedDueDates() {
+    let now = calendar.date(2026, 6, 10, 12)
+    let paydate = payday(biweekly(), now)
+
+    let middle = schedule(
+      [
+        card("Later", due: 25, balance: 4_000),
+        card("Shared B", due: 15, balance: 3_000),
+        card("Solo", due: 12, balance: 1_000),
+        card("Shared A", due: 15, balance: 2_000),
+      ],
+      now: now,
+      payday: paydate
+    )
+    #expect(middle.payments.map(\.name) == ["Solo", "Shared A", "Shared B", "Later"])
+    #expect(middle.payments.map(\.cashNeededCents) == [1_000, 6_000, 6_000, 10_000])
+    #expect(middle.beforePayday.map(\.name) == ["Solo", "Shared A", "Shared B"])
+    #expect(middle.dueBeforePaydayCents == 6_000)
+    #expect(middle.dueBeforePaydayCents == middle.beforePayday.last?.cashNeededCents)
+
+    let first = schedule(
+      [
+        card("Next", due: 20, balance: 2_000),
+        card("First B", due: 11, balance: 500),
+        card("First A", due: 11, balance: 1_500),
+      ],
+      now: now,
+      payday: paydate
+    )
+    #expect(first.payments.map(\.name) == ["First A", "First B", "Next"])
+    #expect(first.payments.map(\.cashNeededCents) == [2_000, 2_000, 4_000])
+    #expect(first.beforePayday.map(\.name) == ["First A", "First B"])
+    #expect(first.dueBeforePaydayCents == 2_000)
+    #expect(first.dueBeforePaydayCents == first.beforePayday.last?.cashNeededCents)
   }
 
   @Test("Due dates wrap past January 31, the year end, and a leap day")
@@ -125,6 +162,7 @@ struct PayoffScheduleTests {
     #expect(result.afterPayday.map(\.name) == ["On Payday", "After"])
     #expect(result.dueBeforePaydayCents == 11_000)
     #expect(result.payments.map(\.cashNeededCents) == [10_000, 11_000, 31_000, 36_000])
+    #expect(result.dueBeforePaydayCents == result.beforePayday.last?.cashNeededCents)
   }
 
   @Test("Payments due before a payday in the next month include the month's end")
@@ -142,6 +180,7 @@ struct PayoffScheduleTests {
     #expect(result.beforePayday.map(\.name) == ["June End", "July First"])
     #expect(result.dueBeforePaydayCents == 3_000)
     #expect(result.payments.map(\.cashNeededCents) == [1_000, 3_000, 7_000, 15_000])
+    #expect(result.dueBeforePaydayCents == result.beforePayday.last?.cashNeededCents)
   }
 
   @Test("Without a budget there's no payday, so nothing is due before it")
