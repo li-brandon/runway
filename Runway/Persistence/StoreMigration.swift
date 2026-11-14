@@ -245,9 +245,23 @@ struct StoreMigration {
   static func waitUntilClosed(_ storeURL: URL, deadline: ContinuousClock.Instant) -> Bool {
     while hasOpenConnection(to: storeURL) {
       guard ContinuousClock.now < deadline else { return false }
-      Thread.sleep(forTimeInterval: 0.02)
+      pauseBetweenChecks()
     }
     return true
+  }
+
+  /// Runs the current run loop between checks rather than sleeping. A released container can
+  /// finish closing with work queued to the thread that's waiting, as on the main thread at launch,
+  /// and sleeping through it would keep the store open until the deadline. A run loop with nothing
+  /// to run returns at once, so the rest of the pause is slept.
+  private static func pauseBetweenChecks() {
+    let end = Date(timeIntervalSinceNow: 0.02)
+    while Date() < end {
+      guard RunLoop.current.run(mode: .default, before: end) else {
+        Thread.sleep(until: end)
+        return
+      }
+    }
   }
 
   /// Every open connection holds a shared lock on a WAL store, even when idle, so an exclusive
@@ -255,34 +269,42 @@ struct StoreMigration {
   /// process as well as other processes.
   ///
   /// Holding that lock, it also empties the `-wal`, because closing alone can leave one behind with
-  /// a size and date of its own.
+  /// a size and date of its own. A checkpoint that couldn't empty it counts as still open.
   ///
   /// Only opens real SQLite stores, because closing would discard a `-wal` it can't apply. A store
   /// that can't be opened for any other reason has no sign of a connection, so reports none.
   private static func hasOpenConnection(to storeURL: URL) -> Bool {
-    guard
-      let handle = try? FileHandle(forReadingFrom: storeURL),
-      let header = try? handle.read(upToCount: sqliteHeader.count),
-      header == sqliteHeader
-    else {
-      return false
-    }
+    guard isSQLiteStore(storeURL) else { return false }
     var connection: OpaquePointer?
-    defer { sqlite3_close(connection) }
+    defer { sqlite3_close_v2(connection) }
     let opened = sqlite3_open_v2(storeURL.path, &connection, SQLITE_OPEN_READWRITE, nil)
     guard opened == SQLITE_OK else { return false }
-    let result = sqlite3_exec(
+    // `BEGIN EXCLUSIVE` wouldn't do: in WAL mode it doesn't exclude readers.
+    let locked = sqlite3_exec(
       connection,
-      """
-      PRAGMA locking_mode=EXCLUSIVE;
-      SELECT count(*) FROM sqlite_master;
-      PRAGMA wal_checkpoint(TRUNCATE);
-      """,
+      "PRAGMA locking_mode=EXCLUSIVE; SELECT count(*) FROM sqlite_master;",
       nil,
       nil,
       nil
     )
-    return result == SQLITE_BUSY || result == SQLITE_LOCKED
+    guard locked == SQLITE_OK else { return locked == SQLITE_BUSY || locked == SQLITE_LOCKED }
+    // Unlike `PRAGMA wal_checkpoint`, which reports a blocked checkpoint as a row, this returns it.
+    let checkpointed = sqlite3_wal_checkpoint_v2(
+      connection,
+      nil,
+      SQLITE_CHECKPOINT_TRUNCATE,
+      nil,
+      nil
+    )
+    return checkpointed == SQLITE_BUSY || checkpointed == SQLITE_LOCKED
+  }
+
+  /// Closes the file before SQLite opens the store, so the probe never holds a descriptor of its own
+  /// across the check.
+  private static func isSQLiteStore(_ storeURL: URL) -> Bool {
+    guard let handle = try? FileHandle(forReadingFrom: storeURL) else { return false }
+    defer { try? handle.close() }
+    return (try? handle.read(upToCount: sqliteHeader.count)) == sqliteHeader
   }
 
   /// An empty `-wal` counts as unchanged whatever its date: it holds no writes, and just opening
@@ -328,7 +350,7 @@ struct StoreMigration {
         fileManager.fileExists(atPath: $0.path)
       }
       guard !isCleared, ContinuousClock.now < deadline else { return }
-      Thread.sleep(forTimeInterval: 0.02)
+      Self.pauseBetweenChecks()
     }
   }
 
