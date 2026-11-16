@@ -22,6 +22,8 @@ struct StoreMigrationTests {
   /// Slow CI machines can take longer than the app's defaults to close a store.
   private let closeTimeout: TimeInterval = 30
   private let closeBudget: TimeInterval = 60
+  /// CI has drained a main-queue backlog for 65s; this only stops a stuck main queue hanging the job.
+  private let mainDrainBudget: TimeInterval = 300
 
   private func withDirectory(_ body: (URL) throws -> Void) throws {
     let directory = FileManager.default.temporaryDirectory
@@ -69,7 +71,16 @@ struct StoreMigrationTests {
     let started = clock.now
     var drain = Duration.zero
     if !Thread.isMainThread {
-      drain = clock.measure { DispatchQueue.main.sync {} }
+      let drained = DispatchSemaphore(value: 0)
+      var timedOut = false
+      drain = clock.measure {
+        DispatchQueue.main.async { drained.signal() }
+        timedOut = drained.wait(timeout: .now() + mainDrainBudget) == .timedOut
+      }
+      if timedOut {
+        Issue.record("waitUntilClosed: main queue didn't drain within \(Int(mainDrainBudget))s")
+        return false
+      }
     }
     let closedAfterDrain = StoreMigration.waitUntilClosed(url, deadline: clock.now)
     let deadline = clock.now.advanced(by: .seconds(closeBudget))
