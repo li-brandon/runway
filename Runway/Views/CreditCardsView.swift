@@ -2,13 +2,15 @@ import Foundation
 import SwiftData
 import SwiftUI
 
-/// Every credit card, soonest due first. Tap to edit, swipe to delete.
+/// Upcoming payments with the cash needed by each due date, this month's spend per card, and every
+/// credit card, soonest due first. Tap a card to edit, swipe to delete.
 struct CreditCardsView: View {
   /// Opens the editor on the first card, for screenshots.
   var opensFirstCard = false
 
   @Environment(\.modelContext) private var modelContext
   @Query private var cards: [CreditCard]
+  @Query(sort: \Budget.periodStart) private var budgets: [Budget]
   @State private var editor: CreditCardEditorRequest?
   @State private var deleting: CreditCard?
   @State private var showsDelete = false
@@ -20,6 +22,17 @@ struct CreditCardsView: View {
   var body: some View {
     let now = Date.now
     let sorted = CreditCardDates.sorted(cards, now: now, calendar: calendar)
+    let schedule = CardPayoffSchedule(
+      cards: cards,
+      now: now,
+      nextPayday: CardPayoffSchedule.nextPayday(after: now, of: budgets.first, calendar: calendar),
+      calendar: calendar
+    )
+    let spend = CardMonthlySpend.summary(
+      of: cards.flatMap(\.payments),
+      now: now,
+      calendar: calendar
+    )
     List {
       if sorted.isEmpty {
         ContentUnavailableView(
@@ -28,6 +41,18 @@ struct CreditCardsView: View {
           description: Text("Add a card to keep its statement balance and due date in one place.")
         )
       } else {
+        payoffSections(schedule)
+        if !spend.isEmpty {
+          Section {
+            ForEach(spend) { item in
+              CardSpendRow(spend: item)
+            }
+          } header: {
+            Text("Spend This Month")
+          } footer: {
+            Text("Purchases on each card this month and last month. Payments aren't included.")
+          }
+        }
         Section {
           ForEach(sorted) { card in
             Button {
@@ -108,6 +133,47 @@ struct CreditCardsView: View {
   }
 }
 
+extension CreditCardsView {
+  /// Payments due before the next payday, then the rest, or every payment without a budget.
+  @ViewBuilder
+  fileprivate func payoffSections(_ schedule: CardPayoffSchedule) -> some View {
+    if let payday = schedule.nextPayday {
+      let paydayText = payday.formatted(.dateTime.month(.abbreviated).day())
+      let totalText = Money.format(cents: schedule.dueBeforePaydayCents)
+      Section {
+        if schedule.beforePayday.isEmpty {
+          Text("Nothing is due before payday.")
+            .foregroundStyle(.secondary)
+        }
+        ForEach(schedule.beforePayday) { payment in
+          CardPaymentRow(payment: payment)
+        }
+      } header: {
+        Text("Due Before Payday")
+      } footer: {
+        Text("\(totalText) is due before payday on \(paydayText).")
+      }
+      if !schedule.afterPayday.isEmpty {
+        Section("Later") {
+          ForEach(schedule.afterPayday) { payment in
+            CardPaymentRow(payment: payment)
+          }
+        }
+      }
+    } else if !schedule.payments.isEmpty {
+      Section {
+        ForEach(schedule.payments) { payment in
+          CardPaymentRow(payment: payment)
+        }
+      } header: {
+        Text("Upcoming Payments")
+      } footer: {
+        Text("Set up a budget to see what's due before payday.")
+      }
+    }
+  }
+}
+
 private struct CreditCardEditorRequest: Identifiable {
   let id = UUID()
   let card: CreditCard?
@@ -176,6 +242,98 @@ private struct CreditCardRow: View {
     case 1: "1 day left"
     default: "\(daysLeft) days left"
     }
+  }
+}
+
+/// A payment's card, amount, due date, the cash needed by then, and any autopay warning.
+private struct CardPaymentRow: View {
+  let payment: ScheduledCardPayment
+
+  var body: some View {
+    let dueText = payment.dueDate.formatted(.dateTime.month(.abbreviated).day())
+    let cashText = Money.format(cents: payment.cashNeededCents)
+    VStack(alignment: .leading, spacing: 4) {
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .firstTextBaseline) {
+          name
+          Spacer(minLength: 12)
+          amount
+        }
+        VStack(alignment: .leading, spacing: 4) {
+          name
+          amount
+        }
+      }
+      Text("Due \(dueText), \(CreditCardRow.text(daysLeft: payment.daysLeft))")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+      Text("Cash needed by \(dueText): \(cashText)")
+        .font(.subheadline)
+      if payment.needsAutopayAttention {
+        Label(
+          Self.autopayWarning(daysLeft: payment.daysLeft),
+          systemImage: "exclamationmark.triangle.fill"
+        )
+        .font(.caption)
+        .foregroundStyle(.orange)
+      }
+    }
+    .fixedSize(horizontal: false, vertical: true)
+    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+    .accessibilityElement(children: .combine)
+  }
+
+  private var name: some View {
+    Text(payment.name)
+      .font(.headline)
+  }
+
+  private var amount: some View {
+    AmountText(cents: payment.amountCents, accessibilityTitle: "Amount due")
+  }
+
+  static func autopayWarning(daysLeft: Int) -> String {
+    switch daysLeft {
+    case 0: "No autopay — due today"
+    case 1: "No autopay — due tomorrow"
+    default: "No autopay — due in \(daysLeft) days"
+    }
+  }
+}
+
+/// A card's spend this month, with last month's for comparison.
+private struct CardSpendRow: View {
+  let spend: CardMonthlySpend
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .firstTextBaseline) {
+          name
+          Spacer(minLength: 12)
+          amount
+        }
+        VStack(alignment: .leading, spacing: 4) {
+          name
+          amount
+        }
+      }
+      Text("Last month: \(Money.format(cents: spend.lastMonthCents))")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+    }
+    .fixedSize(horizontal: false, vertical: true)
+    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+    .accessibilityElement(children: .combine)
+  }
+
+  private var name: some View {
+    Text(spend.name)
+      .font(.headline)
+  }
+
+  private var amount: some View {
+    AmountText(cents: spend.thisMonthCents, accessibilityTitle: "This month")
   }
 }
 
