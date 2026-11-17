@@ -81,7 +81,7 @@ labeled as a card payment. Payments never count as spending; purchases on a card
 **Savings Cushion**, linked from Credit Cards, keeps enough in checking for every upcoming card
 payment: each card's positive statement balance, due on its next due date. List your accounts,
 mark each as Checking, Savings, or Not counted, and enter balances by hand (a blank one counts as
-$0). The cushion is the payments plus an optional fixed buffer. If checking holds less, it says to
+$0, and an overdrawn one can be negative). The cushion is the payments plus an optional fixed buffer. If checking holds less, it says to
 move the difference from savings, by the due date of the first payment, soonest first, that
 checking can't cover (the buffer counts as needed by the first payment; a buffer with no payments
 has no date), and whether that's before your next payday. It warns when savings can't cover the
@@ -390,8 +390,8 @@ device only when you share an export yourself. Exported files aren't encrypted.
 - **Export:** every record as versioned JSON, and expenses as CSV, through the share sheet. JSON
   dates are seconds since 2001-01-01 UTC, which keeps them exact.
 - **Import:** replaces all data with a JSON export, after a confirmation. The whole file is checked
-  first, and any failure leaves your data untouched. Refunds, removed extra money, and derived
-  amounts that can legitimately go below zero, may be negative. All other amounts may not.
+  first, and any failure leaves your data untouched. Refunds, removed extra money, account
+  balances, and derived amounts that can legitimately go below zero, may be negative. All other amounts may not.
 - **Reset:** after a confirmation, erases everything and restores the default categories. The app
   lock setting stays as it is.
 

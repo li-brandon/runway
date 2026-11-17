@@ -162,6 +162,19 @@ struct SavingsCushionTests {
     #expect(cushion.transferBy == calendar.date(2026, 6, 15))
   }
 
+  @Test("An overdrawn checking account adds its overdraft to the transfer")
+  func overdrawnChecking() {
+    let cushion = SavingsCushion(
+      payments: [payment("Visa", 50_000, due: 15)],
+      bufferCents: nil,
+      accounts: [checking(-20_000), savings(100_000)]
+    )
+    #expect(cushion.checkingCents == -20_000)
+    #expect(cushion.transferCents == 70_000)
+    #expect(cushion.shortfallCents == 0)
+    #expect(cushion.transferBy == calendar.date(2026, 6, 15))
+  }
+
   @Test("Checking and savings each sum their accounts; uncounted accounts are left out")
   func sumsAccounts() {
     let cushion = SavingsCushion(
@@ -236,11 +249,11 @@ struct SavingsCushionTests {
       spendablePerPeriodCents: 140_000
     )
     let now = calendar.date(2026, 6, 10, 12)
-    let payday = SavingsCushion.nextPayday(of: budget, now: now, calendar: calendar)
+    let payday = CardPayoffSchedule.nextPayday(after: now, of: budget, calendar: calendar)
     #expect(payday == calendar.date(2026, 6, 21))
-    let early = SavingsCushion.nextPayday(
+    let early = CardPayoffSchedule.nextPayday(
+      after: calendar.date(2026, 6, 1),
       of: budget,
-      now: calendar.date(2026, 6, 1),
       calendar: calendar
     )
     #expect(early == calendar.date(2026, 6, 7))
@@ -409,15 +422,19 @@ struct SavingsCushionTests {
     #expect(account.balanceSource == .manual)
   }
 
-  @Test("An account needs a name and a balance that's blank or not negative")
+  @Test("An account needs a name and a valid balance, which may be blank or overdrawn")
   func accountValidation() throws {
     var draft = CashAccountDraft(locale: Money.fixedLocale)
     #expect(!draft.canSave)
     draft.name = "Checking"
     #expect(draft.canSave)
-    draft.balanceText = "-5"
-    #expect(draft.balance.issue == .negative)
-    #expect(!draft.canSave)
+    draft.balanceText = "-$5.25"
+    #expect(draft.balance == .cents(-525))
+    #expect(draft.canSave)
+    // An overdrawn balance reopens in the editor as the same amount.
+    let overdrawn = CashAccount(name: "Overdrawn", role: .checking)
+    overdrawn.setBalance(-525, now: .now)
+    #expect(CashAccountDraft(account: overdrawn, locale: Money.fixedLocale).balance == .cents(-525))
     draft.balanceText = "abc"
     #expect(!draft.canSave)
     draft.balanceText = "0"

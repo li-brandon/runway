@@ -28,9 +28,7 @@ struct SavingsCushionView: View {
       now: now,
       calendar: calendar
     )
-    let payday = budget.map {
-      SavingsCushion.nextPayday(of: BudgetSnapshot($0), now: now, calendar: calendar)
-    }
+    let payday = CardPayoffSchedule.nextPayday(after: now, of: budget, calendar: calendar)
     List {
       Section {
         CushionSummary(cushion: cushion, payday: payday)

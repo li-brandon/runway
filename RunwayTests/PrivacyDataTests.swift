@@ -490,7 +490,10 @@ struct PrivacyDataTests {
     #expect(snapshot.extraMoney.contains { $0.amountCents < 0 })
     #expect(snapshot.billPayments.contains { $0.adjustmentCents < 0 })
     #expect(snapshot.billPayments.contains { $0.plannedCents < 0 })
+    var overdrawn = snapshot
+    overdrawn.cashAccounts[0].balanceCents = -20_000
     _ = try DataImport.validate(snapshot)
+    _ = try DataImport.validate(overdrawn)
   }
 
   @Test("Import rejects references to records that don't exist")
@@ -620,9 +623,6 @@ struct PrivacyDataTests {
       $0.cashAccounts.append($0.cashAccounts[0])
     }
     try expectRejected(.invalidField("account name")) { $0.cashAccounts[0].name = "" }
-    try expectRejected(.negativeAmount("account balance")) {
-      $0.cashAccounts[0].balanceCents = -1
-    }
     try expectRejected(.amountTooLarge("account balance")) {
       $0.cashAccounts[0].balanceCents = .max
     }

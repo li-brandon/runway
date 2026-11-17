@@ -22,7 +22,7 @@ struct CushionAccount: Equatable, Sendable {
 ///   date, soonest first (then by name). Cards with no or a zero balance are left out.
 /// - **Cushion** = the payments + the buffer. A blank buffer is 0.
 /// - **Checking** and **savings** each sum their accounts' balances. A blank balance
-///   counts as 0, and `notCounted` accounts are left out.
+///   counts as 0, an overdrawn one is negative, and `notCounted` accounts are left out.
 /// - **Transfer** = cushion − checking, never below 0: what to move from savings to
 ///   checking. Left to spend today reserves it when `Budget.reservesCushion` is on.
 /// - **Shortfall** = transfer − savings, never below 0: what savings can't cover.
@@ -78,13 +78,6 @@ struct SavingsCushion: Equatable, Sendable {
   func isTransferDue(before payday: Date) -> Bool {
     transferBy.map { $0 < payday } ?? false
   }
-
-  /// The budget's next payday after `now`: the start of the next period, or of the first one
-  /// before the budget has started.
-  static func nextPayday(of budget: BudgetSnapshot, now: Date, calendar: Calendar) -> Date {
-    let period = AllowanceEngine(calendar: calendar).period(containing: now, of: budget)
-    return now < period.start ? period.start : period.end
-  }
 }
 
 extension SavingsCushion {
@@ -97,14 +90,10 @@ extension SavingsCushion {
     calendar: Calendar
   ) {
     self.init(
-      payments: cards.compactMap { card in
-        guard let cents = card.statementBalanceCents else { return nil }
-        return CushionPayment(
-          name: card.name,
-          amountCents: cents,
-          dueDate: card.nextDueDate(now: now, calendar: calendar)
-        )
-      },
+      payments: CardPayoffSchedule(cards: cards, now: now, nextPayday: nil, calendar: calendar)
+        .payments.map {
+          CushionPayment(name: $0.name, amountCents: $0.amountCents, dueDate: $0.dueDate)
+        },
       bufferCents: budget?.cushionBufferCents,
       accounts: accounts.map { CushionAccount(role: $0.role, balanceCents: $0.balanceCents) }
     )
@@ -151,7 +140,7 @@ extension CashAccountRole {
   }
 }
 
-/// The account editor's fields. The balance may be blank, but not negative.
+/// The account editor's fields. The balance may be blank, or negative for an overdrawn account.
 struct CashAccountDraft: Equatable {
   var name = ""
   var role = CashAccountRole.checking
@@ -169,7 +158,7 @@ struct CashAccountDraft: Equatable {
   var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
   var balance: BudgetDraft.ParsedAmount {
-    BudgetDraft.parseAmount(balanceText, locale: locale)
+    BudgetDraft.parseAmount(balanceText, locale: locale, allowsNegative: true)
   }
 
   var canSave: Bool {

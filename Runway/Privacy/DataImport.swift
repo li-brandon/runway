@@ -151,7 +151,7 @@ enum DataImport {
     for account in snapshot.cashAccounts {
       try checkNotBlank(account.name, field: "account name")
       if let cents = account.balanceCents {
-        try checkAmount(cents, field: "account balance")
+        try checkSignedAmount(cents, field: "account balance")
       }
       if let date = account.balanceUpdatedAt {
         try checkDate(date, field: "account balance date")

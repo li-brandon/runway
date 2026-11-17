@@ -366,8 +366,13 @@ struct BudgetDraft: Equatable, Sendable {
 
   // MARK: - Parsing and formatting
 
-  /// Parses typed dollars into cents, e.g. `"$1,234.5"` → `123_450` in `en_US`.
-  static func parseAmount(_ text: String, locale: Locale = .autoupdatingCurrent) -> ParsedAmount {
+  /// Parses typed dollars into cents, e.g. `"$1,234.5"` → `123_450` in `en_US`. A leading minus is
+  /// an error unless `allowsNegative`, as for an overdrawn account balance.
+  static func parseAmount(
+    _ text: String,
+    locale: Locale = .autoupdatingCurrent,
+    allowsNegative: Bool = false
+  ) -> ParsedAmount {
     var normalized: String
     if text.contains("$") {
       guard let dollars = normalizedDollarText(text) else { return .failure(.invalid) }
@@ -407,11 +412,11 @@ struct BudgetDraft: Equatable, Sendable {
       return .failure(.invalid)
     }
     let cents = Money.cents(fromDollars: dollars)
-    if isNegative && cents != 0 {
+    if isNegative && cents != 0 && !allowsNegative {
       return .failure(.negative)
     }
     guard cents <= maximumCents else { return .failure(.tooLarge) }
-    return .cents(cents)
+    return .cents(isNegative ? -cents : cents)
   }
 
   /// Dollar-prefixed input accepts either decimal separator and validates grouping first.
