@@ -89,6 +89,7 @@ enum DataImport {
     let budgetIDs = try uniqueIDs(snapshot.budgets.map(\.id), in: "budgets")
     let billIDs = try uniqueIDs(snapshot.fixedBills.map(\.id), in: "bills")
     let cardIDs = try uniqueIDs(snapshot.creditCards.map(\.id), in: "credit cards")
+    _ = try uniqueIDs(snapshot.cashAccounts.map(\.id), in: "accounts")
     _ = try uniqueIDs(snapshot.expenses.map(\.id), in: "expenses")
     _ = try uniqueIDs(snapshot.carryoverChanges.map(\.id), in: "carryover changes")
     _ = try uniqueIDs(snapshot.amountChanges.map(\.id), in: "amount changes")
@@ -110,6 +111,9 @@ enum DataImport {
       try checkAmount(budget.savingsCents, field: "budget savings")
       if let income = budget.incomeCents {
         try checkAmount(income, field: "budget income")
+      }
+      if let buffer = budget.cushionBufferCents {
+        try checkAmount(buffer, field: "cushion buffer")
       }
     }
 
@@ -141,6 +145,16 @@ enum DataImport {
       }
       if let date = card.currentBalanceUpdatedAt {
         try checkDate(date, field: "credit card current balance date")
+      }
+    }
+
+    for account in snapshot.cashAccounts {
+      try checkNotBlank(account.name, field: "account name")
+      if let cents = account.balanceCents {
+        try checkSignedAmount(cents, field: "account balance")
+      }
+      if let date = account.balanceUpdatedAt {
+        try checkDate(date, field: "account balance date")
       }
     }
 
@@ -238,7 +252,9 @@ enum DataImport {
         incomeCents: record.incomeCents,
         savingsCents: record.savingsCents,
         carryoverEnabled: record.carryoverEnabled,
-        timeZoneIdentifier: record.timeZoneIdentifier
+        timeZoneIdentifier: record.timeZoneIdentifier,
+        cushionBufferCents: record.cushionBufferCents,
+        reservesCushion: record.reservesCushion
       )
       context.insert(budget)
       budgets[record.id] = budget
@@ -275,6 +291,14 @@ enum DataImport {
       card.statementBalanceSource = record.statementBalanceSource
       card.currentBalanceSource = record.currentBalanceSource
       cards[record.id] = card
+    }
+
+    for record in snapshot.cashAccounts {
+      let account = CashAccount(name: record.name, role: record.role)
+      context.insert(account)
+      account.balanceCents = record.balanceCents
+      account.balanceUpdatedAt = record.balanceUpdatedAt
+      account.balanceSource = record.balanceSource
     }
 
     // Passing a category always, so the service never fetches while deletes are pending. An

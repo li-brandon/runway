@@ -72,6 +72,16 @@ struct CreditCardsView: View {
           Text("Card payments you log don't count as spending. Purchases still do.")
         }
       }
+      Section {
+        NavigationLink {
+          SavingsCushionView()
+        } label: {
+          Label("Savings Cushion", systemImage: "banknote")
+            .frame(minHeight: 44)
+        }
+      } footer: {
+        Text("See what to move from savings to checking to cover these payments.")
+      }
     }
     .navigationTitle("Credit Cards")
     .navigationBarTitleDisplayMode(.inline)

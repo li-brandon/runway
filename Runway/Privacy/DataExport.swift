@@ -29,6 +29,9 @@ struct RunwaySnapshot: Codable, Equatable, Sendable {
     var savingsCents: Int
     var carryoverEnabled: Bool
     var timeZoneIdentifier: String
+    /// Missing in backups from before the savings cushion, which had no buffer or reserve.
+    var cushionBufferCents: Int?
+    var reservesCushion = false
   }
 
   struct FixedBillRecord: Codable, Equatable, Sendable {
@@ -63,6 +66,15 @@ struct RunwaySnapshot: Codable, Equatable, Sendable {
     var currentBalanceUpdatedAt: Date?
     var statementBalanceSource: CardBalanceSource
     var currentBalanceSource: CardBalanceSource
+  }
+
+  struct CashAccountRecord: Codable, Equatable, Sendable {
+    var id: Int
+    var name: String
+    var role: CashAccountRole
+    var balanceCents: Int?
+    var balanceUpdatedAt: Date?
+    var balanceSource: CardBalanceSource
   }
 
   struct CarryoverChangeRecord: Codable, Equatable, Sendable {
@@ -122,6 +134,8 @@ struct RunwaySnapshot: Codable, Equatable, Sendable {
   var billPayments: [BillPaymentRecord]
   /// Missing in backups from before credit cards.
   var creditCards: [CreditCardRecord] = []
+  /// Missing in backups from before the savings cushion.
+  var cashAccounts: [CashAccountRecord] = []
 }
 
 // Decoders that default the fields older backups don't have. Defined in extensions so the
@@ -145,6 +159,24 @@ extension RunwaySnapshot {
     billPayments = try container.decode([BillPaymentRecord].self, forKey: .billPayments)
     creditCards =
       try container.decodeIfPresent([CreditCardRecord].self, forKey: .creditCards) ?? []
+    cashAccounts =
+      try container.decodeIfPresent([CashAccountRecord].self, forKey: .cashAccounts) ?? []
+  }
+}
+
+extension RunwaySnapshot.BudgetRecord {
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(Int.self, forKey: .id)
+    periodLength = try container.decode(PeriodLength.self, forKey: .periodLength)
+    periodStart = try container.decode(Date.self, forKey: .periodStart)
+    spendablePerPeriodCents = try container.decode(Int.self, forKey: .spendablePerPeriodCents)
+    incomeCents = try container.decodeIfPresent(Int.self, forKey: .incomeCents)
+    savingsCents = try container.decode(Int.self, forKey: .savingsCents)
+    carryoverEnabled = try container.decode(Bool.self, forKey: .carryoverEnabled)
+    timeZoneIdentifier = try container.decode(String.self, forKey: .timeZoneIdentifier)
+    cushionBufferCents = try container.decodeIfPresent(Int.self, forKey: .cushionBufferCents)
+    reservesCushion = try container.decodeIfPresent(Bool.self, forKey: .reservesCushion) ?? false
   }
 }
 
@@ -184,6 +216,8 @@ enum DataExport {
       .sorted { ($0.date, $0.sequence) < ($1.date, $1.sequence) }
     let cards = try context.fetch(FetchDescriptor<CreditCard>())
       .sorted { ($0.name, $0.dueDay) < ($1.name, $1.dueDay) }
+    let accounts = try context.fetch(FetchDescriptor<CashAccount>())
+      .sorted { ($0.name, $0.role.rawValue) < ($1.name, $1.role.rawValue) }
 
     let categoryIDs = identifiers(of: categories)
     let budgetIDs = identifiers(of: budgets)
@@ -215,7 +249,9 @@ enum DataExport {
           incomeCents: budget.incomeCents,
           savingsCents: budget.savingsCents,
           carryoverEnabled: budget.carryoverEnabled,
-          timeZoneIdentifier: budget.timeZoneIdentifier
+          timeZoneIdentifier: budget.timeZoneIdentifier,
+          cushionBufferCents: budget.cushionBufferCents,
+          reservesCushion: budget.reservesCushion
         )
       },
       fixedBills: bills.enumerated().map { index, bill in
@@ -301,6 +337,16 @@ enum DataExport {
           currentBalanceUpdatedAt: card.currentBalanceUpdatedAt,
           statementBalanceSource: card.statementBalanceSource,
           currentBalanceSource: card.currentBalanceSource
+        )
+      },
+      cashAccounts: accounts.enumerated().map { index, account in
+        RunwaySnapshot.CashAccountRecord(
+          id: index + 1,
+          name: account.name,
+          role: account.role,
+          balanceCents: account.balanceCents,
+          balanceUpdatedAt: account.balanceUpdatedAt,
+          balanceSource: account.balanceSource
         )
       }
     )

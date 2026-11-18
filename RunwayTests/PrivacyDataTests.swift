@@ -26,7 +26,9 @@ struct PrivacyDataTests {
       incomeCents: 285_000,
       savingsCents: 20_000,
       carryoverEnabled: false,
-      timeZoneIdentifier: "America/Chicago"
+      timeZoneIdentifier: "America/Chicago",
+      cushionBufferCents: 20_000,
+      reservesCushion: true
     )
     context.insert(budget)
     let rent = FixedBill(name: "Rent", amountCents: 110_000, dueDay: 1)
@@ -113,6 +115,15 @@ struct PrivacyDataTests {
       in: context,
       now: calendar.date(2026, 6, 9, 10)
     )
+
+    let checking = CashAccount(name: "Everyday Checking", role: .checking)
+    context.insert(checking)
+    checking.setBalance(60_000, now: calendar.date(2026, 6, 9, 8).addingTimeInterval(0.5))
+    let savings = CashAccount(name: "Rainy Day", role: .savings)
+    context.insert(savings)
+    savings.balanceCents = 250_000
+    savings.balanceSource = .imported
+    savings.balanceUpdatedAt = calendar.date(2026, 6, 9, 7)
     try context.save()
   }
 
@@ -135,6 +146,7 @@ struct PrivacyDataTests {
       try context.fetchCount(FetchDescriptor<ExtraMoney>()),
       try context.fetchCount(FetchDescriptor<BillPayment>()),
       try context.fetchCount(FetchDescriptor<CreditCard>()),
+      try context.fetchCount(FetchDescriptor<CashAccount>()),
     ]
   }
 
@@ -143,7 +155,7 @@ struct PrivacyDataTests {
   @Test("Tests and snapshots cover every model in the schema")
   func coversSchema() throws {
     // A new model must be added to `RunwaySnapshot`, `counts(in:)`, and this number.
-    #expect(RunwaySchemaV2.models.count == 10)
+    #expect(RunwaySchemaV3.models.count == 11)
     let context = try makeContext()
     try seedEverything(into: context)
     #expect(try counts(in: context).allSatisfy { $0 > 0 })
@@ -183,6 +195,41 @@ struct PrivacyDataTests {
     #expect(card.payments.map(\.amountCents) == [50_000])
     #expect(expenses[2].isCardPayment && expenses[2].creditCard === card)
     #expect(!expenses[0].isCardPayment && expenses[0].creditCard == nil)
+    #expect(budget.cushionBufferCents == 20_000 && budget.reservesCushion)
+    let byName = FetchDescriptor<CashAccount>(sortBy: [SortDescriptor(\.name)])
+    let accounts = try loaded.fetch(byName)
+    #expect(accounts.map(\.name) == ["Everyday Checking", "Rainy Day"])
+    #expect(accounts.map(\.role) == [.checking, .savings])
+    #expect(accounts.map(\.balanceCents) == [60_000, 250_000])
+    #expect(accounts.map(\.balanceSource) == [.manual, .imported])
+    let entered = calendar.date(2026, 6, 9, 8).addingTimeInterval(0.5)
+    #expect(accounts[0].balanceUpdatedAt == entered)
+  }
+
+  @Test("A backup from before the savings cushion imports with no accounts, buffer, or reserve")
+  func importsBackupWithoutCushion() throws {
+    let data = try DataExport.jsonData(from: try validSnapshot())
+    var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    object["cashAccounts"] = nil
+    var budgets = try #require(object["budgets"] as? [[String: Any]])
+    for index in budgets.indices {
+      budgets[index]["cushionBufferCents"] = nil
+      budgets[index]["reservesCushion"] = nil
+    }
+    object["budgets"] = budgets
+    let old = try JSONSerialization.data(withJSONObject: object)
+
+    let validated = try DataImport.validate(old)
+    #expect(validated.snapshot.cashAccounts.isEmpty)
+    #expect(validated.snapshot.budgets.allSatisfy { $0.cushionBufferCents == nil })
+    #expect(validated.snapshot.budgets.allSatisfy { !$0.reservesCushion })
+    let context = try makeContext()
+    try DataImport.apply(validated, to: context)
+    let loaded = ModelContext(context.container)
+    #expect(try loaded.fetchCount(FetchDescriptor<CashAccount>()) == 0)
+    let budget = try #require(try loaded.fetch(FetchDescriptor<Budget>()).first)
+    #expect(budget.cushionBufferCents == nil && !budget.reservesCushion)
+    #expect(budget.spendablePerPeriodCents == 240_000)
   }
 
   @Test("A backup from before credit cards imports with no cards and no payments")
@@ -283,6 +330,9 @@ struct PrivacyDataTests {
       #expect(expenses.map(\.amountCents) == [1_250, -500, 50_000])
       #expect(expenses.map(\.isCardPayment) == [false, false, true])
       #expect(expenses[0].category?.name == "Food")
+      #expect(budget.cushionBufferCents == 20_000 && budget.reservesCushion)
+      let accounts = try loaded.fetch(FetchDescriptor<CashAccount>())
+      #expect(Set(accounts.map(\.balanceCents)) == [60_000, 250_000])
     }
   }
 
@@ -440,7 +490,10 @@ struct PrivacyDataTests {
     #expect(snapshot.extraMoney.contains { $0.amountCents < 0 })
     #expect(snapshot.billPayments.contains { $0.adjustmentCents < 0 })
     #expect(snapshot.billPayments.contains { $0.plannedCents < 0 })
+    var overdrawn = snapshot
+    overdrawn.cashAccounts[0].balanceCents = -20_000
     _ = try DataImport.validate(snapshot)
+    _ = try DataImport.validate(overdrawn)
   }
 
   @Test("Import rejects references to records that don't exist")
@@ -565,6 +618,19 @@ struct PrivacyDataTests {
     }
     try expectRejected(.danglingReference("expense credit card")) {
       $0.expenses[0].creditCardID = 999
+    }
+    try expectRejected(.duplicateID("accounts")) {
+      $0.cashAccounts.append($0.cashAccounts[0])
+    }
+    try expectRejected(.invalidField("account name")) { $0.cashAccounts[0].name = "" }
+    try expectRejected(.amountTooLarge("account balance")) {
+      $0.cashAccounts[0].balanceCents = .max
+    }
+    try expectRejected(.dateOutOfRange("account balance date")) {
+      $0.cashAccounts[0].balanceUpdatedAt = .distantPast
+    }
+    try expectRejected(.negativeAmount("cushion buffer")) {
+      $0.budgets[0].cushionBufferCents = -1
     }
   }
 
@@ -701,9 +767,9 @@ struct PrivacyDataTests {
 
     // The live context sees the result too, which is what the rebuilt views read.
     #expect(!context.hasChanges)
-    #expect(try counts(in: context) == [0, 0, 0, 7, 0, 0, 0, 0, 0, 0])
+    #expect(try counts(in: context) == [0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0])
     let loaded = ModelContext(context.container)
-    #expect(try counts(in: loaded) == [0, 0, 0, 7, 0, 0, 0, 0, 0, 0])
+    #expect(try counts(in: loaded) == [0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0])
     let service = CategoryService(context: loaded)
     let categories = try service.categories()
     #expect(categories.map(\.name) == CategoryService.defaultNames)
@@ -728,7 +794,7 @@ struct PrivacyDataTests {
     }
 
     #expect(saveAttempts == 1)
-    #expect(try counts(in: context) == [0, 0, 0, 7, 0, 0, 0, 0, 0, 0])
+    #expect(try counts(in: context) == [0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0])
   }
 
   @Test("A failed reset save throws and leaves existing data unchanged")
@@ -765,6 +831,9 @@ struct PrivacyDataTests {
       #expect(expenses.map(\.amountCents) == [1_250, -500, 50_000])
       #expect(expenses.map(\.isCardPayment) == [false, false, true])
       #expect(expenses[0].category?.name == "Food")
+      #expect(budget.cushionBufferCents == 20_000 && budget.reservesCushion)
+      let accounts = try loaded.fetch(FetchDescriptor<CashAccount>())
+      #expect(Set(accounts.map(\.balanceCents)) == [60_000, 250_000])
     }
   }
 
